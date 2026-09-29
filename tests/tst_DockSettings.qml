@@ -10,6 +10,16 @@ TestCase {
         compare(settings.visibilityMode, "always")
         compare(settings.overlayMode, false)
         compare(settings.visibleWorkspace, "all")
+        compare(settings.showSingleWindowPicker, false)
+        compare(settings.windowPickerLayout, "classic")
+    }
+
+    function test_windowPickerChoices() {
+        var compact = DockSettings.normalize({ showSingleWindowPicker: true, windowPickerLayout: "compact" })
+        compare(compact.showSingleWindowPicker, true)
+        compare(compact.windowPickerLayout, "compact")
+        compare(DockSettings.normalize({ windowPickerLayout: "list" }).windowPickerLayout, "list")
+        compare(DockSettings.normalize({ windowPickerLayout: "unknown" }).windowPickerLayout, "classic")
     }
 
     function test_legacyAutohideMigration_data() {

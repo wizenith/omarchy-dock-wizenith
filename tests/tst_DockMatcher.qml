@@ -366,11 +366,117 @@ TestCase {
         compare(items.length, 1)
         compare(items[0].appId, "foot")
 
-        // Matching on exec binary or entry id still works
-        var btopEntries = [{ id: "btop.desktop", name: "System Monitor", exec: "btop", icon: "btop" }]
+        // Matching on exec binary or entry id still works (CLI/TUI launchers only)
+        var btopEntries = [{ id: "btop.desktop", name: "System Monitor", exec: "btop", icon: "btop", runInTerminal: true }]
         compare(DockMatcher.extractCliApp("btop", btopEntries), "btop")
-        var idEntries = [{ id: "lazyapp.desktop", name: "Lazy App", exec: "/opt/lazy/run", icon: "lazyapp" }]
+        var idEntries = [{ id: "lazyapp.desktop", name: "Lazy App", exec: "/opt/lazy/run", icon: "lazyapp", runInTerminal: true }]
         compare(DockMatcher.extractCliApp("lazyapp - session", idEntries), "lazyapp")
+    }
+
+    function test_terminalTitleNamingAGuiAppStaysATerminal() {
+        // A terminal whose title mentions a GUI app must not be dressed up as that app.
+        var entries = [
+            { id: "obsidian.desktop", name: "Obsidian", exec: "/usr/bin/obsidian %U", icon: "obsidian", runInTerminal: false }
+        ]
+        compare(DockMatcher.extractCliApp("\u27e6 Obsidian not showing in dock", entries), "")
+        compare(DockMatcher.extractCliApp("obsidian", entries), "")
+
+        var top = { appId: "kitty", title: "\u27e6 Obsidian not showing in dock" }
+        var items = DockMatcher.buildDockItems([], [top], top, entries, null, {}, {}, 0, [])
+        compare(items.length, 1)
+        compare(items[0].appId, "kitty")
+        compare(items[0].windowCount, 1)
+    }
+
+    function test_reverseDomainClassMatchesItsEntry() {
+        // Flatpak-style ids outside the well-known TLD list (md.obsidian.Obsidian).
+        var entry = { id: "obsidian.desktop", name: "Obsidian", exec: "/usr/bin/obsidian %U", icon: "obsidian", runInTerminal: false }
+        var entries = [entry]
+        var top = { appId: "md.obsidian.Obsidian", title: "Vault - Obsidian" }
+        compare(DockMatcher.matchToplevel(top, "obsidian", entry, entries), true)
+
+        var items = DockMatcher.buildDockItems(["obsidian"], [top], top, entries, null, {}, {}, 0, [])
+        compare(items.length, 1)
+        compare(items[0].appId, "obsidian")
+        compare(items[0].isRunning, true)
+        compare(items[0].windowCount, 1)
+    }
+
+    function test_scannedCliAppAppliesOnlyToItsOwnWindow() {
+        // The /proc scanner reports per window; a CLI app found in one terminal must not
+        // relabel an unrelated terminal with the same app id.
+        var top1 = { appId: "kitty", title: "work" }
+        var top2 = { appId: "kitty", title: "tui" }
+        var entries = [{ id: "btop.desktop", name: "System Monitor", exec: "btop", icon: "btop", runInTerminal: true }]
+
+        DockMatcher.setDetectedCliApps({ "tui": "btop" })
+        var items = DockMatcher.buildDockItems([], [top1, top2], null, entries, null, {}, {}, 0, [])
+        var byId = {}
+        for (var i = 0; i < items.length; i++) byId[items[i].appId] = items[i]
+        DockMatcher.setDetectedCliApps({})
+
+        verify(byId["btop"] !== undefined)
+        compare(byId["btop"].windowCount, 1)
+        compare(byId["btop"].toplevels[0].title, "tui")
+        verify(byId["kitty"] !== undefined)
+        compare(byId["kitty"].windowCount, 1)
+        compare(byId["kitty"].toplevels[0].title, "work")
+    }
+
+    function test_iconOverrideReplacesIconAndName() {
+        var entry = { id: "corehub.desktop", name: "CoreHub", exec: "/home/me/corehub/bin/corehub", icon: "corehub", startupClass: "org.wails.corehub" }
+        var entries = [entry]
+
+        DockMatcher.setIconOverrides({ "org.wails.corehub": { icon: "/opt/corehub/icon.png", name: "Core Hub" } })
+        var items = DockMatcher.buildDockItems([], [{ appId: "org.wails.corehub", title: "CoreHub" }], null, entries, null, {}, {}, 0, [])
+        compare(items.length, 1)
+        compare(items[0].icon, "/opt/corehub/icon.png")
+        compare(items[0].name, "Core Hub")
+
+        // A plain string value overrides only the icon.
+        DockMatcher.setIconOverrides({ "corehub": "file:///tmp/custom.svg" })
+        compare(DockMatcher.iconOverride("corehub", "", "", null).icon, "file:///tmp/custom.svg")
+        compare(DockMatcher.iconOverride("corehub", "", "", null).name, "")
+        // Keys are case-insensitive and tolerate the .desktop suffix.
+        compare(DockMatcher.iconOverride("CoreHub.desktop", "", "", null).icon, "file:///tmp/custom.svg")
+
+        DockMatcher.setIconOverrides({})
+        compare(DockMatcher.iconOverride("corehub", "", "", null), null)
+    }
+
+    function test_cliAppIconsDisabledKeepsTerminalsTogether() {
+        var entries = [{ id: "nvim.desktop", name: "Neovim", exec: "nvim", icon: "nvim", runInTerminal: true }]
+        var top = { appId: "kitty", title: "nvim" }
+
+        DockMatcher.setCliAppIcons(false)
+        var together = DockMatcher.buildDockItems([], [top], top, entries, null, {}, {}, 0, [])
+        compare(together.length, 1)
+        compare(together[0].appId, "kitty")
+        compare(together[0].windowCount, 1)
+
+        DockMatcher.setCliAppIcons(true)
+        var split = DockMatcher.buildDockItems([], [top], top, entries, null, {}, {}, 0, [])
+        compare(split[0].appId, "nvim")
+    }
+
+    function test_terminalOwnedClassSharesTheTerminalSlot() {
+        // `kitty --class org.omarchy.agent`: an unknown class driven by a terminal.
+        var entries = [{ id: "kitty.desktop", name: "kitty", exec: "kitty", icon: "kitty", categories: ["TerminalEmulator"] }]
+        var top = { appId: "org.omarchy.agent", title: "\u67e5\u627e Dock \u8a2d\u5b9a | Work" }
+
+        DockMatcher.setProcessAppIds({})
+        var alone = DockMatcher.buildDockItems([], [top], null, entries, null, {}, {}, 0, [])
+        compare(alone.length, 1)
+        compare(alone[0].appId, "org.omarchy.agent")
+
+        DockMatcher.setProcessAppIds({ "org.omarchy.agent": "kitty" })
+        compare(DockMatcher.processAppId("org.omarchy.agent"), "kitty")
+        var shared = DockMatcher.buildDockItems([], [top], null, entries, null, {}, {}, 0, [])
+        compare(shared.length, 1)
+        compare(shared[0].appId, "kitty")
+        compare(shared[0].windowCount, 1)
+        compare(shared[0].toplevels[0].appId, "org.omarchy.agent")
+        DockMatcher.setProcessAppIds({})
     }
 
     function test_getCandidates_caseAndVariants() {

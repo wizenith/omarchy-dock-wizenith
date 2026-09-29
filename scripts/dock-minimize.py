@@ -399,12 +399,12 @@ def main():
 
     mode = "minimize"
     arg_start = 1
-    if sys.argv[1] in ("minimize", "restore", "restore-or-launch", "toggle-active", "toggle-or-cycle", "toggle-instance", "activate-instance", "toggle", "activate", "scan-cli"):
+    if sys.argv[1] in ("minimize", "restore", "restore-or-launch", "toggle-active", "toggle-or-cycle", "toggle-instance", "activate-instance", "toggle", "activate", "scan-cli", "scan-app-ids"):
         mode = sys.argv[1]
         arg_start = 2
 
     queries = [q.strip() for q in sys.argv[arg_start:] if q.strip()]
-    if not queries and mode != "scan-cli":
+    if not queries and mode not in ("scan-cli", "scan-app-ids"):
         return
 
     sock_path = get_hypr_socket()
@@ -426,17 +426,43 @@ def main():
             launch_fallback(queries)
         return
 
+    if mode == "scan-app-ids":
+        # Map window class -> owning binary, so a window that was launched with a
+        # custom class (e.g. `kitty --class org.omarchy.agent`) can be recognised
+        # as the program that actually drives it.
+        by_class = {}
+        for c in clients:
+            c_cls = str(c.get("class", "")).strip()
+            if not c_cls or by_class.get(c_cls):
+                continue
+            pid = c.get("pid")
+            if not pid:
+                continue
+            try:
+                exe = os.readlink("/proc/%s/exe" % pid)
+            except Exception:
+                continue
+            name = os.path.basename(exe).strip().lower()
+            # A binary replaced while running reads as "kitty (deleted)".
+            name = re.sub(r"\s*\(deleted\)$", "", name).strip()
+            if name and name != c_cls.lower():
+                by_class[c_cls] = name
+        print(json.dumps(by_class))
+        return
+
     if mode == "scan-cli":
-        detected_apps = []
+        # Map each terminal window's title to the CLI app running inside that very window,
+        # so the dock never applies one window's process to another window.
+        detected_by_title = {}
         for c in clients:
             c_cls = str(c.get("class", "")).lower()
             if is_terminal_identifier(c_cls):
                 pid = c.get("pid")
                 title = c.get("title", "")
                 app = extract_cli_app(title, pid)
-                if app and app not in detected_apps:
-                    detected_apps.append(app)
-        print(json.dumps(detected_apps))
+                if app and title:
+                    detected_by_title[title] = app
+        print(json.dumps(detected_by_title))
         return
 
     queries, target_index, target_addr = split_queries(queries)

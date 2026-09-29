@@ -21,6 +21,9 @@ BarWidget {
   property string visibleWorkspace: "all"
   property bool showFolderTitles: true
   property bool showBadges: true
+  property bool cliAppIcons: true
+  property bool showSingleWindowPicker: false
+  property string windowPickerLayout: "classic"
   property bool widgetsEnabled: true
   readonly property bool settingsOpen: settingsWindow.open
   property bool isSavingSettings: false
@@ -72,6 +75,8 @@ BarWidget {
         }
         root.overlayMode = normalized.overlayMode
         root.visibleWorkspace = normalized.visibleWorkspace
+        root.showSingleWindowPicker = normalized.showSingleWindowPicker
+        root.windowPickerLayout = normalized.windowPickerLayout
         if (s && s.dockEnabled !== undefined) {
           root.dockEnabled = (s.dockEnabled === true || s.dockEnabled === "true" || s.dockEnabled === 1 || s.dockEnabled === "1")
         } else {
@@ -83,6 +88,7 @@ BarWidget {
         if (s && s.showBadges !== undefined) {
           root.showBadges = (s.showBadges === true)
         }
+        root.cliAppIcons = (s && s.cliAppIcons !== undefined) ? (s.cliAppIcons === true || s.cliAppIcons === "true") : true
         if (s && s.widgetsEnabled !== undefined) {
           root.widgetsEnabled = (s.widgetsEnabled === true)
         }
@@ -121,6 +127,9 @@ BarWidget {
     s.visibleWorkspace = root.visibleWorkspace
     s.showFolderTitles = root.showFolderTitles
     s.showBadges = root.showBadges
+    s.cliAppIcons = root.cliAppIcons
+    s.showSingleWindowPicker = root.showSingleWindowPicker
+    s.windowPickerLayout = root.windowPickerLayout
     s.widgetsEnabled = root.widgetsEnabled
     s.appMenuPosition = root.appMenuPosition || s.appMenuPosition || "left"
     s.widgetPosition = root.widgetPosition || s.widgetPosition || "right"
@@ -257,6 +266,30 @@ BarWidget {
     saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
       root.bar.run("omarchy-shell rosakodu.dock setShowBadges " + (val ? "true" : "false"))
+    }
+  }
+
+  function setCliAppIcons(val) {
+    root.cliAppIcons = val
+    saveSettings()
+    if (root.bar && typeof root.bar.run === "function") {
+      root.bar.run("omarchy-shell rosakodu.dock setCliAppIcons " + (val ? "true" : "false"))
+    }
+  }
+
+  function setShowSingleWindowPicker(val) {
+    root.showSingleWindowPicker = !!val
+    saveSettings()
+    if (root.bar && typeof root.bar.run === "function") {
+      root.bar.run("omarchy-shell rosakodu.dock setShowSingleWindowPicker " + (val ? "true" : "false"))
+    }
+  }
+
+  function setWindowPickerLayout(value) {
+    root.windowPickerLayout = DockSettings.normalizeWindowPickerLayout(value)
+    saveSettings()
+    if (root.bar && typeof root.bar.run === "function") {
+      root.bar.run("omarchy-shell rosakodu.dock setWindowPickerLayout " + root.windowPickerLayout)
     }
   }
 
@@ -847,6 +880,166 @@ BarWidget {
               root.setShowBadges(!root.showBadges)
             }
           }
+        }
+
+        // Toggle CLI app icons Row
+        Rectangle {
+          id: cliAppIconsRow
+          Layout.fillWidth: true
+          height: 42
+          radius: 8
+          color: toggleCliAppIconsMouse.containsMouse ? Style.hoverFillFor(Color.popups.text, Color.accent) : "transparent"
+          Behavior on color { ColorAnimation { duration: 120 } }
+
+          RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 10
+            anchors.rightMargin: 10
+            spacing: 8
+
+            ColumnLayout {
+              Layout.fillWidth: true
+              Layout.alignment: Qt.AlignVCenter
+              spacing: 1
+
+              Text {
+                Layout.fillWidth: true
+                text: "CLI app icons"
+                textFormat: Text.PlainText
+                font.family: Style.font.family
+                font.pixelSize: 12
+                font.bold: true
+                color: Color.popups.text
+                elide: Text.ElideRight
+              }
+
+              Text {
+                Layout.fillWidth: true
+                text: "Terminals wear the icon of the app inside them instead of the terminal's"
+                textFormat: Text.PlainText
+                font.family: Style.font.family
+                font.pixelSize: 10
+                color: Color.muted
+                elide: Text.ElideRight
+              }
+            }
+
+            // Custom Smooth Toggle Switch
+            Rectangle {
+              id: switchCliAppIconsTrack
+              Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
+              Layout.preferredWidth: 36
+              Layout.preferredHeight: 20
+              width: 36
+              height: 20
+              radius: 10
+              color: root.cliAppIcons ? Color.accent : Qt.rgba(Color.popups.text.r, Color.popups.text.g, Color.popups.text.b, 0.25)
+              Behavior on color { ColorAnimation { duration: 180 } }
+
+              Rectangle {
+                id: switchCliAppIconsThumb
+                width: 14
+                height: 14
+                radius: 7
+                anchors.verticalCenter: parent.verticalCenter
+                x: root.cliAppIcons ? (switchCliAppIconsTrack.width - width - 3) : 3
+                color: root.cliAppIcons ? Color.background : Color.popups.text
+                Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+              }
+            }
+          }
+
+          MouseArea {
+            id: toggleCliAppIconsMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+              root.setCliAppIcons(!root.cliAppIcons)
+            }
+          }
+        }
+
+        // Window picker controls
+        Rectangle {
+          id: singleWindowPickerRow
+          Layout.fillWidth: true
+          height: 42
+          radius: 8
+          color: singleWindowPickerMouse.containsMouse ? Style.hoverFillFor(Color.popups.text, Color.accent) : "transparent"
+          Behavior on color { ColorAnimation { duration: 120 } }
+
+          RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 10
+            anchors.rightMargin: 10
+            spacing: 8
+
+            ColumnLayout {
+              Layout.fillWidth: true
+              Layout.alignment: Qt.AlignVCenter
+              spacing: 1
+              Text {
+                Layout.fillWidth: true
+                text: "Single-window picker"
+                textFormat: Text.PlainText
+                font.family: Style.font.family
+                font.pixelSize: 12
+                font.bold: true
+                color: Color.popups.text
+                elide: Text.ElideRight
+              }
+              Text {
+                Layout.fillWidth: true
+                text: "Show hover actions for apps with one window"
+                textFormat: Text.PlainText
+                font.family: Style.font.family
+                font.pixelSize: 10
+                color: Color.muted
+                elide: Text.ElideRight
+              }
+            }
+
+            Rectangle {
+              Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
+              Layout.preferredWidth: 36
+              Layout.preferredHeight: 20
+              width: 36
+              height: 20
+              radius: 10
+              color: root.showSingleWindowPicker ? Color.accent : Qt.rgba(Color.popups.text.r, Color.popups.text.g, Color.popups.text.b, 0.25)
+              Behavior on color { ColorAnimation { duration: 180 } }
+              Rectangle {
+                width: 14
+                height: 14
+                radius: 7
+                anchors.verticalCenter: parent.verticalCenter
+                x: root.showSingleWindowPicker ? (parent.width - width - 3) : 3
+                color: root.showSingleWindowPicker ? Color.background : Color.popups.text
+                Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+              }
+            }
+          }
+
+          MouseArea {
+            id: singleWindowPickerMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.setShowSingleWindowPicker(!root.showSingleWindowPicker)
+          }
+        }
+
+        DockDropdown {
+          Layout.fillWidth: true
+          label: "Window picker layout"
+          value: root.windowPickerLayout
+          options: [
+            { value: "classic", label: "Original · full details" },
+            { value: "compact", label: "Compact · smaller controls" },
+            { value: "list", label: "Single-line list · most dense" }
+          ]
+          onChanged: function(value) { root.setWindowPickerLayout(value) }
         }
 
         // Toggle Widgets in Dock Row

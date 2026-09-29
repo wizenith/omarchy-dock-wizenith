@@ -16,6 +16,7 @@ Item {
     property int totalCount: 1
     property string barPosition: "bottom"
     property var shell: null
+    property var parentDock: null
     property real slotSize: 42
     property real iconBaseSize: 24
     property int systemBorderSize: Style.normalBorderWidth > 0 ? Style.normalBorderWidth : 2
@@ -26,6 +27,15 @@ Item {
     property int dockDragActiveIndex: -1
     readonly property bool isAnyDragging: dockDragActiveIndex >= 0 || isDragging
     property bool showBadges: true
+    readonly property bool windowPickerOpen: !!(root.parentDock && root.parentDock.windowPicker
+        && root.parentDock.windowPicker.opened
+        && root.parentDock.windowPicker.appId === String(root.itemData ? (root.itemData.appId || root.itemData.id || "") : ""))
+
+    readonly property bool hasMultipleWindows: root.itemData
+        && !root.itemData.isStack
+        && root.itemData.isRunning
+        && root.itemData.toplevels
+        && root.itemData.toplevels.length >= 2
 
     signal itemLeftClicked(var itemData)
     signal itemRightClicked(var itemData, var itemItem)
@@ -55,6 +65,22 @@ Item {
     property int iconRevision: 0
     property bool iconsReady: true
 
+    // Name shown in the hover label (dock-icons.json may rename an entry).
+    function displayName() {
+        var item = root.itemData
+        if (!item) return ""
+        if (typeof item === "string") return item
+        var ov = DockModel.iconOverride(item.appId || item.id || "", item.desktopId || "", item.appClass || "", null)
+        if (ov && ov.name) return ov.name
+        return String(item.name || item.appId || item.id || "")
+    }
+
+    function overrideIconFor(itemObj) {
+        if (!itemObj || typeof itemObj === "string") return ""
+        var ov = DockModel.iconOverride(itemObj.appId || itemObj.id || "", itemObj.desktopId || "", itemObj.appClass || "", null)
+        return ov && ov.icon ? ov.icon : ""
+    }
+
     // Dynamic Real-time Theme-aware Icon Resolution
     function resolveIcon(itemObj) {
         if (!itemObj) return Quickshell.iconPath("application-x-executable", true) || "file:///usr/share/pixmaps/omarchy.png"
@@ -66,6 +92,10 @@ Item {
         var cands = (typeof itemObj === "string")
             ? DockModel.getCandidates(itemObj, itemObj, itemObj)
             : DockModel.getCandidates(itemObj.rawIcon, itemObj.icon, itemObj.appId || itemObj.id)
+
+        // A dock-icons.json override wins over every heuristic.
+        var overrideIcon = (typeof itemObj === "string") ? "" : root.overrideIconFor(itemObj)
+        if (overrideIcon && cands.indexOf(overrideIcon) === -1) cands = [overrideIcon].concat(cands)
 
         for (var i = 0; i < cands.length; i++) {
             var c = cands[i]
@@ -92,6 +122,13 @@ Item {
             if (qsLow && qsLow.length > 0 && qsLow.indexOf("application-x-executable") === -1) {
                 return qsLow
             }
+        }
+
+        // Icons Qt's themed lookup cannot see (an unlisted size, a user icon dir)
+        // come from the dock's own index of the icon directories.
+        for (var m = 0; m < cands.length; m++) {
+            var mapped = DockModel.iconIndexLookup(cands[m])
+            if (mapped) return mapped
         }
 
         if (shell && shell.appLibrary && typeof shell.appLibrary.iconSource === "function") {
@@ -341,9 +378,18 @@ Item {
         interval: 1500
         repeat: false
         onTriggered: {
-            if (!mouseArea.containsMouse) {
+            if (!mouseArea.containsMouse && !root.windowPickerOpen) {
                 root.previewTopIndex = -1
             }
+        }
+    }
+
+    onItemDataChanged: {
+        if (mouseArea && mouseArea.containsMouse && root.parentDock && root.parentDock.windowPicker) {
+            root.parentDock.windowPicker.enter(root.itemData, root)
+        }
+        if (mouseArea && mouseArea.containsMouse && root.parentDock && root.parentDock.itemHoverEnter) {
+            root.parentDock.itemHoverEnter(root.itemData, root)
         }
     }
 
@@ -521,6 +567,12 @@ Item {
 
         onEntered: {
             mouseArea.forceActiveFocus()
+            if (root.parentDock && root.parentDock.windowPicker) {
+                root.parentDock.windowPicker.enter(root.itemData, root)
+            }
+            if (root.parentDock && root.parentDock.itemHoverEnter) {
+                root.parentDock.itemHoverEnter(root.itemData, root)
+            }
         }
 
         Keys.onRightPressed: function(event) {
@@ -671,7 +723,15 @@ Item {
         onExited: {
             longPressTimer.stop()
             root.isWheelScrolling = false
-            previewResetTimer.restart()
+            if (root.parentDock && root.parentDock.windowPicker) {
+                root.parentDock.windowPicker.leave(root.itemData)
+            }
+            if (root.parentDock && root.parentDock.itemHoverLeave) {
+                root.parentDock.itemHoverLeave(root.itemData, root)
+            }
+            if (!root.windowPickerOpen) {
+                previewResetTimer.restart()
+            }
         }
 
         onCanceled: {
@@ -756,4 +816,5 @@ Item {
             }
         }
     }
+
 }

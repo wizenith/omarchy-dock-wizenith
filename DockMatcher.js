@@ -684,7 +684,123 @@ function findEntry(desktopEntries, appId) {
     return null;
 }
 
+// =========================================================================
+// User icon / display-name overrides — ~/.config/omarchy/dock-icons.json
+// Keys are matched (case-insensitively) against the item id, the desktop entry
+// id/name/icon and the window class. A value is either an icon (theme name,
+// absolute path, file:// or image:// URL) or { "icon": ..., "name": ... }.
+//   { "corehub": "file:///home/me/corehub/build/appicon.png",
+//     "org.omarchy.agent": { "icon": "robot", "name": "Omarchy Agent" } }
+// Set by the shell from that file; an unresolvable icon falls back to the
+// normal resolution chain, so a typo degrades gracefully.
+// =========================================================================
+var _iconOverrides = {};
+
+function setIconOverrides(overrides) {
+    var next = {};
+    if (overrides && typeof overrides === "object" && !Array.isArray(overrides)) {
+        for (var key in overrides) {
+            var k = String(key === undefined || key === null ? "" : key).trim().toLowerCase();
+            var v = overrides[key];
+            if (!k || v === undefined || v === null) continue;
+            if (typeof v === "string") {
+                if (v.trim().length > 0) next[k] = { icon: v.trim(), name: "" };
+            } else if (typeof v === "object") {
+                next[k] = {
+                    icon: String(v.icon === undefined || v.icon === null ? "" : v.icon).trim(),
+                    name: String(v.name === undefined || v.name === null ? "" : v.name).trim()
+                };
+            }
+        }
+    }
+    _iconOverrides = next;
+}
+
+function getIconOverrides() {
+    return _iconOverrides;
+}
+
+function overrideKeysFor(appId, desktopId, appClass, entry) {
+    var keys = [];
+    function add(value) {
+        var v = String(value === undefined || value === null ? "" : value).trim();
+        if (!v) return;
+        var low = v.toLowerCase();
+        var stripped = stripDesktop(v).toLowerCase();
+        var withSuffix = low.slice(-8) === ".desktop" ? low : (low + ".desktop");
+        if (keys.indexOf(low) === -1) keys.push(low);
+        if (stripped && keys.indexOf(stripped) === -1) keys.push(stripped);
+        if (keys.indexOf(withSuffix) === -1) keys.push(withSuffix);
+    }
+    add(appId);
+    add(desktopId);
+    add(appClass);
+    if (entry) {
+        add(entry.id);
+        add(entry.name);
+        add(entry.startupClass);
+        add(entry.icon);
+    }
+    return keys;
+}
+
+function iconOverride(appId, desktopId, appClass, entry) {
+    var keys = overrideKeysFor(appId, desktopId, appClass, entry);
+    for (var i = 0; i < keys.length; i++) {
+        if (_iconOverrides[keys[i]]) return _iconOverrides[keys[i]];
+    }
+    return null;
+}
+
+// An entry's overridden name, or "" when the entry keeps its own name.
+function nameOverride(appId, desktopId, appClass, entry) {
+    var ov = iconOverride(appId, desktopId, appClass, entry);
+    return (ov && ov.name) ? ov.name : "";
+}
+
+function applyItemOverride(item, appId, desktopId, appClass) {
+    if (!item || item.isStack) return item;
+    var ov = iconOverride(appId, desktopId, appClass, null);
+    if (!ov) return item;
+    if (ov.icon) {
+        item.icon = ov.icon;
+        item.rawIcon = ov.icon;
+        item.iconSource = "";
+    }
+    if (ov.name) item.name = ov.name;
+    return item;
+}
+
+// name -> icon file, scanned from the XDG icon dirs by the dock itself. Qt's themed
+// lookup only sees sizes the icon theme lists (a 1024x1024 icon in
+// ~/.local/share/icons is invisible to it), and the shell's app library is not
+// exposed to third-party plugins, so those icons are resolved from here instead.
+var _iconIndex = {};
+
+function setIconIndex(index) {
+    _iconIndex = (index && typeof index === "object" && !Array.isArray(index)) ? index : {};
+}
+
+function getIconIndex() {
+    return _iconIndex;
+}
+
+// An absolute path for the icon name, or "" when the name is unknown.
+function iconIndexLookup(name) {
+    var value = String(name === undefined || name === null ? "" : name).trim();
+    if (!value) return "";
+    var hit = _iconIndex[value];
+    if (hit === undefined) hit = _iconIndex[value.toLowerCase()];
+    var path = String(hit === undefined || hit === null ? "" : hit);
+    if (!path) return "";
+    if (path.indexOf("file://") === 0 || path.indexOf("image://") === 0) return path;
+    if (path.charAt(0) === "/") return "file://" + path;
+    return "";
+}
+
 function resolveIcon(entry, appId, appLibrary) {
+    var ov = iconOverride(appId, entry ? entry.id : "", "", entry);
+    if (ov && ov.icon) return ov.icon;
     if (entry && entry.iconSource && entry.iconSource.length > 0 && entry.iconSource.indexOf("application-x-executable") === -1) {
         return entry.iconSource;
     }
@@ -736,13 +852,23 @@ var KNOWN_TERMINALS = [
     "ptyxis", "org.gnome.ptyxis", "tabby", "hyper", "warp", "warp-terminal"
 ];
 
-function isTerminalApp(id, entry) {
-    if (!id && !entry) return false;
+function isKnownTerminalId(id) {
     var s = String(id || "").toLowerCase().trim();
     if (s.slice(-8) === ".desktop") s = s.slice(0, -8);
     for (var i = 0; i < KNOWN_TERMINALS.length; i++) {
         if (s === KNOWN_TERMINALS[i]) return true;
     }
+    return false;
+}
+
+function isTerminalApp(id, entry) {
+    if (!id && !entry) return false;
+    if (isKnownTerminalId(id)) return true;
+    // `kitty --class org.omarchy.agent` and friends: the class is not a terminal,
+    // but the process behind the window is one, so the window belongs to it.
+    var s = String(id || "").toLowerCase().trim();
+    if (s.slice(-8) === ".desktop") s = s.slice(0, -8);
+    if (isKnownTerminalId(_processAppIds[s])) return true;
     if (entry) {
         if (Array.isArray(entry.categories) && entry.categories.indexOf("TerminalEmulator") !== -1) {
             return true;
@@ -821,6 +947,9 @@ function extractCliApp(title, desktopEntries) {
             for (var d = 0; d < list.length; d++) {
                 var de = unwrapEntry(list[d]);
                 if (!de) continue;
+                // Only CLI/TUI launchers identify a terminal window. A window title mentioning a
+                // GUI app (e.g. a terminal titled "… Obsidian …") must never claim that GUI app.
+                if (de.runInTerminal !== true) continue;
                 var deId = stripDesktop(de.id || "").toLowerCase();
                 var deExec = String(de.exec || "").toLowerCase().split(/\s+/)[0].split("/").pop();
                 if ((token === deId || token === deExec) && !isTerminalApp(deId, de)) {
@@ -893,21 +1022,64 @@ function clearPendingCliHint() {
     _pendingCliHint = null;
 }
 
-var _detectedCliApps = []; // array of detected CLI command strings from /proc, e.g. ["cliamp", "btop"]
+// Title -> CLI app, scanned from each terminal window's own process tree by the helper
+// script. Keyed by window title so a detected app is only ever applied to the terminal
+// it was actually found in; a bare "nvim" detected elsewhere must not relabel a shell.
+var _detectedCliApps = {};
 var _detectedCliTimestamp = 0;
 
 function setDetectedCliApps(apps) {
-    if (Array.isArray(apps)) {
-        _detectedCliApps = apps.slice();
+    if (apps && typeof apps === "object" && !Array.isArray(apps)) {
+        _detectedCliApps = apps;
         _detectedCliTimestamp = Date.now();
     }
 }
 
 function getDetectedCliApps() {
     if (Date.now() - _detectedCliTimestamp > 15000) {
-        _detectedCliApps = [];
+        _detectedCliApps = {};
     }
     return _detectedCliApps;
+}
+
+// Whether a terminal window may wear the icon of the CLI/TUI app running inside it.
+// Off: every terminal groups under its terminal emulator (kitty, foot, ghostty, ...);
+// the hover label and window picker still name what runs inside the window.
+var _cliAppIcons = true;
+
+function setCliAppIcons(enabled) {
+    _cliAppIcons = enabled !== false;
+}
+
+function getCliAppIcons() {
+    return _cliAppIcons;
+}
+
+// Window class -> owning binary, scanned from /proc by the helper script. Lets a
+// window launched with a custom class (kitty --class org.omarchy.agent) be
+// recognised as the terminal that actually drives it, instead of showing up as an
+// unknown app wearing the generic fallback icon.
+var _processAppIds = {};
+
+function setProcessAppIds(map) {
+    var next = {};
+    if (map && typeof map === "object" && !Array.isArray(map)) {
+        for (var key in map) {
+            var k = String(key === undefined || key === null ? "" : key).trim().toLowerCase();
+            var v = String(map[key] === undefined || map[key] === null ? "" : map[key]).trim().toLowerCase();
+            if (k && v) next[k] = v;
+        }
+    }
+    _processAppIds = next;
+}
+
+function getProcessAppIds() {
+    return _processAppIds;
+}
+
+function processAppId(appId) {
+    if (!appId) return "";
+    return _processAppIds[stripDesktop(appId).toLowerCase()] || "";
 }
 
 var _stickyCliByTopId = {}; // topId -> cliApp
@@ -957,7 +1129,7 @@ function matchToplevel(toplevel, appId, entry, desktopEntries, cachedCliApp) {
     // Terminal CLI / TUI application matching:
     // If a window is running in a terminal emulator (e.g. foot, ghostty, kitty):
     if (isTerminalApp(appClass, null)) {
-        var cliApp = (cachedCliApp !== undefined) ? cachedCliApp : extractCliApp(title, desktopEntries);
+        var cliApp = (cachedCliApp !== undefined) ? cachedCliApp : (getCliAppIcons() ? extractCliApp(title, desktopEntries) : "");
         // Case A: Dock item is a specific CLI app (e.g. yazi, nvim, btop):
         if (cliApp && !isTerminalApp(cleanId, entry)) {
             var normCliApp = normalizeKey(cliApp);
@@ -1095,12 +1267,14 @@ function matchToplevel(toplevel, appId, entry, desktopEntries, cachedCliApp) {
         }
     }
 
-    // 6. Normalized prefix matches (e.g., com.mitchellh.ghostty <-> ghostty, org.kde.dolphin <-> dolphin)
+    // 6. Normalized prefix matches (e.g., com.mitchellh.ghostty <-> ghostty, org.kde.dolphin <-> dolphin,
+    // md.obsidian.Obsidian <-> obsidian). Any reverse-domain prefix is dropped, not just the well-known
+    // TLDs, so Flatpak-style ids (md.*, ru.*, us.*) resolve to their application entry.
     if (!isWebAppWindow) {
-        var appClassShort = appClass.replace(/^(org|com|io|net|dev)\.[^.]+\./, "").replace(/\.desktop$/, "");
+        var appClassShort = appClass.replace(/^(?:[^.]+\.)*[^.]*\./, "").replace(/\.desktop$/, "");
         if (cleanId && appClassShort === cleanId) return true;
 
-        var cleanIdShort = cleanId.replace(/^(org|com|io|net|dev)\.[^.]+\./, "");
+        var cleanIdShort = cleanId.replace(/^(?:[^.]+\.)*[^.]*\./, "");
         if (appClass === cleanIdShort || appClassShort === cleanIdShort) return true;
     }
 
@@ -1470,9 +1644,10 @@ function buildDockItems(pinnedList, toplevelsList, activeToplevel, desktopEntrie
     var toplevelCliApps = {};
     var hint = getPendingCliHint();
     var detectedCliList = getDetectedCliApps();
+    var cliAppIcons = getCliAppIcons();
     for (var tc = 0; tc < toplevels.length; tc++) {
         var topObj = toplevels[tc];
-        if (topObj && isTerminalApp(topObj.appId || "")) {
+        if (cliAppIcons && topObj && isTerminalApp(topObj.appId || "")) {
             var tk = getTopKey(topObj, tc);
             var title = String(topObj.title || "");
             var detected = extractCliApp(title, entries);
@@ -1497,14 +1672,10 @@ function buildDockItems(pinnedList, toplevelsList, activeToplevel, desktopEntrie
                     hint.appliedToTop = topObj;
                 }
             }
-            if (!detected && detectedCliList.length > 0) {
-                for (var d = 0; d < detectedCliList.length; d++) {
-                    var candCli = detectedCliList[d];
-                    if (candCli) {
-                        detected = candCli;
-                        break;
-                    }
-                }
+            if (!detected && detectedCliList) {
+                // Only the terminal this app was scanned from (matched by title) may use it.
+                var scannedCli = detectedCliList[title];
+                if (scannedCli) detected = scannedCli;
             }
 
             if (detected) {
@@ -1634,6 +1805,7 @@ function buildDockItems(pinnedList, toplevelsList, activeToplevel, desktopEntrie
                 hasUrgent: itemInfo.hasUrgent,
                 toplevels: pRes.matching
             });
+            applyItemOverride(items[items.length - 1], appId, desktopId, pAppClass);
         }
     }
 
@@ -1657,7 +1829,9 @@ function buildDockItems(pinnedList, toplevelsList, activeToplevel, desktopEntrie
 
         // If window is running inside a terminal emulator and executes a recognized CLI app with a valid installed desktop entry:
         if (isTerminalApp(rAppId)) {
-            var rCliApp = (toplevelCliApps[topItemKey] !== undefined) ? toplevelCliApps[topItemKey] : extractCliApp(rTitle, entries);
+            var rCliApp = cliAppIcons
+                ? ((toplevelCliApps[topItemKey] !== undefined) ? toplevelCliApps[topItemKey] : extractCliApp(rTitle, entries))
+                : "";
             if (rCliApp && !isTerminalApp(rCliApp) && hasRealDesktopEntry(entries, rCliApp)) {
                 rAppId = rCliApp;
             } else if (!rTitle || rTitle === rAppId || rTitle === "foot" || rTitle === "ghostty" || rTitle === "kitty" || rTitle === "alacritty" || rTitle === "terminal") {
@@ -1673,6 +1847,13 @@ function buildDockItems(pinnedList, toplevelsList, activeToplevel, desktopEntrie
                     continue;
                 }
             }
+        }
+
+        // A window that a terminal drives through a custom class (kitty --class X)
+        // shares that terminal's slot: same icon, same window list, one entry.
+        var ownerApp = processAppId(rAppId);
+        if (ownerApp && isKnownTerminalId(ownerApp) && !isKnownTerminalId(rAppId)) {
+            rAppId = ownerApp;
         }
 
         var origAppClass = rAppId;
@@ -1716,6 +1897,7 @@ function buildDockItems(pinnedList, toplevelsList, activeToplevel, desktopEntrie
             hasUrgent: rInfo.hasUrgent,
             toplevels: rRes.matching
         });
+        applyItemOverride(items[items.length - 1], rAppId, rDesktopId, rAppClass);
     }
 
     return items;

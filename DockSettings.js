@@ -40,12 +40,19 @@ function normalizeVisibleWorkspace(value) {
     return workspace === "" || workspace.toLowerCase() === "all" ? "all" : workspace
 }
 
+function normalizeWindowPickerLayout(value) {
+    var layout = String(value === undefined || value === null ? "" : value).trim().toLowerCase()
+    return layout === "compact" || layout === "list" ? layout : "classic"
+}
+
 function normalize(raw) {
     var settings = raw && typeof raw === "object" ? raw : {}
     return {
         visibilityMode: normalizeVisibilityMode(settings.visibilityMode, settings.autohide),
         overlayMode: normalizeOverlayMode(settings.overlayMode, settings.spaceMode),
-        visibleWorkspace: normalizeVisibleWorkspace(settings.visibleWorkspace)
+        visibleWorkspace: normalizeVisibleWorkspace(settings.visibleWorkspace),
+        showSingleWindowPicker: settings.showSingleWindowPicker === true,
+        windowPickerLayout: normalizeWindowPickerLayout(settings.windowPickerLayout)
     }
 }
 

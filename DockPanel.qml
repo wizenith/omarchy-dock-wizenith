@@ -20,6 +20,22 @@ Item {
     property var shell: null
     property var manifest: null
     property var pluginRegistry: null
+    property alias windowPicker: windowPickerController
+
+    WindowPickerController {
+        id: windowPickerController
+        dock: root
+    }
+
+    DockTooltip {
+        id: dockTooltip
+        anchorWindow: root.tooltipAnchorWindow
+        anchorRect: root.tooltipAnchorRect
+        open: root.tooltipOpen
+        title: root.tooltipTitle
+        subtitle: root.tooltipSubtitle
+        barPosition: root.barPosition
+    }
 
     // Dock state & Multi-source Live Bar Position Tracking
     property bool opened: true
@@ -96,6 +112,7 @@ Item {
     // Direct IPC handler for rosakodu.dock target
     IpcHandler {
         target: "rosakodu.dock"
+        function windowPickerState(): string { return root.windowPicker.debugState() }
         function open(): string { root.open(""); return "ok" }
         function close(): string { root.close(); return "ok" }
         function toggle(): string { root.toggle(); return "ok" }
@@ -119,6 +136,9 @@ Item {
         function setAutohideEdgeDepth(val: string): string { var n = parseInt(val, 10); if (!isNaN(n) && n >= 1 && n <= 64) { root.autohideEdgeDepth = n; root.saveSettings(); } return "ok" }
         function setShowFolderTitles(val: string): string { root.showFolderTitles = (val === "true" || val === "1"); root.saveSettings(); return "ok" }
         function setShowBadges(val: string): string { root.showBadges = (val === "true" || val === "1"); root.saveSettings(); return "ok" }
+        function setCliAppIcons(val: string): string { root.cliAppIcons = (val === "true" || val === "1"); DockModel.setCliAppIcons(root.cliAppIcons); root.saveSettings(); root.updateDockItems(); return "ok" }
+        function setShowSingleWindowPicker(val: string): string { root.showSingleWindowPicker = (val === "true" || val === "1"); root.saveSettings(); return "ok" }
+        function setWindowPickerLayout(val: string): string { root.windowPickerLayout = DockSettings.normalizeWindowPickerLayout(val); root.saveSettings(); return "ok" }
         function setOverlayMode(val: string): string { root.overlayMode = (val === "true" || val === "1"); root.saveSettings(); return "ok" }
         function ping(): string { return "ok" }
     }
@@ -367,6 +387,30 @@ Item {
     readonly property int effectiveAutohideEdgeDepth: Math.max(4, Math.min(64, root.autohideEdgeDepth))
     property bool showFolderTitles: true
     property bool showBadges: true
+    property bool showSingleWindowPicker: false
+    // Off: terminals keep their terminal identity (kitty, foot, ...) instead of
+    // wearing the icon of the CLI app whose title they report.
+    property bool cliAppIcons: true
+    // Hover label naming the app, plus its window title for a single-window app.
+    property var tooltipItem: null
+    property string tooltipAppId: ""
+    property var tooltipSource: null
+    property var tooltipAnchorWindow: null
+    property rect tooltipAnchorRect: Qt.rect(0, 0, 1, 1)
+    property bool tooltipRequested: false
+    readonly property bool tooltipOpen: root.tooltipRequested && !root.windowPicker.opened
+        && !root.isEditMode && root.dockDragActiveIndex < 0 && root.dockRevealed
+    readonly property string tooltipTitle: root.tooltipItem
+        ? String(root.tooltipItem.name || root.tooltipItem.appId || root.tooltipItem.id || "") : ""
+    readonly property string tooltipSubtitle: {
+        var item = root.tooltipItem
+        if (!item || item.isStack) return ""
+        var tops = item.toplevels || []
+        if (tops.length === 1) return String(tops[0].title || "")
+        if (tops.length > 1) return tops.length + " windows"
+        return ""
+    }
+    property string windowPickerLayout: "classic"
     property bool glassmorphism: false
     property real blurOpacity: 0.68
     readonly property bool showAppMenu: root.widgetsEnabled && root.dockWidgets && (root.dockWidgets.indexOf("omarchy.apps") !== -1)
@@ -379,6 +423,119 @@ Item {
     property bool isStackHovered: false
     property bool isMenuHovered: false
     property bool isWidgetPanelHovered: false
+
+    // Windows driven by a terminal through a custom class are grouped with that
+    // terminal; the scan runs at startup and whenever an unknown app shows up.
+    Process {
+        id: appIdScanProc
+        running: false
+        command: ["python3", "-B", Qt.resolvedUrl("scripts/dock-minimize.py").toString().replace(/^file:\/\//, ""), "scan-app-ids"]
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: {
+                try {
+                    var map = JSON.parse(text)
+                    if (map && typeof map === "object" && !Array.isArray(map)) {
+                        DockModel.setProcessAppIds(map)
+                        root.iconRevision++
+                        root.updateDockItems()
+                    }
+                } catch (e) {}
+            }
+        }
+    }
+
+    property double lastAppIdScan: 0
+
+    function scanProcessAppIds(force) {
+        if (appIdScanProc.running) return
+        var now = Date.now()
+        if (!force && now - root.lastAppIdScan < 2000) return
+        root.lastAppIdScan = now
+        appIdScanProc.running = true
+    }
+
+    // Qt's themed lookup only sees icon sizes listed by the icon theme (a
+    // 1024x1024 icon in ~/.local/share/icons is invisible to it), and the shell's
+    // app library is not exposed to third-party plugins. So the dock keeps its own
+    // name -> file index, scanned from the same XDG icon directories, and uses it
+    // whenever a themed lookup comes up empty.
+    Process {
+        id: iconIndexScan
+        running: false
+        command: ["bash", "-c", root.iconIndexCommand()]
+        stdout: SplitParser { onRead: function(line) { root.indexIconLine(line) } }
+        onStarted: root.pendingIconIndex = ({})
+        onExited: {
+            DockModel.setIconIndex(root.pendingIconIndex)
+            root.pendingIconIndex = ({})
+            root.iconRevision++
+            root.updateDockItems()
+        }
+    }
+
+    property var pendingIconIndex: ({})
+    property var iconIndexTried: ({})
+
+    function iconIndexCommand() {
+        return [
+            'dirs="$HOME/.icons $HOME/.local/share/icons";',
+            'IFS=":"; for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do dirs="$dirs $d/icons"; done; unset IFS;',
+            'for ext in svg png; do',
+            '  for base in $dirs; do',
+            '    [[ -d $base ]] && find "$base" \\( -path "*/apps/*" -o -path "*/devices/*" \\) -name "*.$ext" 2>/dev/null;',
+            '  done;',
+            '  find /usr/share/pixmaps -maxdepth 1 -name "*.$ext" 2>/dev/null;',
+            'done'
+        ].join(' ')
+    }
+
+    function indexIconLine(path) {
+        var value = String(path || "").trim()
+        if (value.length === 0) return
+        var slash = value.lastIndexOf("/")
+        var file = slash >= 0 ? value.slice(slash + 1) : value
+        var dot = file.lastIndexOf(".")
+        var name = dot > 0 ? file.slice(0, dot) : file
+        if (name.length > 0 && root.pendingIconIndex[name] === undefined) root.pendingIconIndex[name] = value
+    }
+
+    // Startup scan plus one rescan per unresolved icon name (a package installed
+    // mid-session). Genuinely iconless apps cost a single lookup each.
+    function inspectItemIcons() {
+        if (!iconIndexScan.running && Object.keys(DockModel.getIconIndex()).length === 0) {
+            iconIndexScan.running = true
+            return
+        }
+        var items = root.dockItems || []
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i]
+            if (!item) continue
+            var names = []
+            if (item.isStack) {
+                var subs = item.subApps || []
+                for (var s = 0; s < subs.length; s++) names.push(subs[s] && (subs[s].rawIcon || subs[s].icon))
+            } else {
+                names.push(item.rawIcon || item.icon)
+            }
+            for (var n = 0; n < names.length; n++) {
+                var name = String(names[n] || "")
+                if (!name || name.indexOf("://") >= 0 || name.indexOf("/") === 0) continue
+                if (root.iconIndexTried[name] === true) continue
+                root.iconIndexTried[name] = true
+                if (!DockModel.iconIndexLookup(name) && !iconIndexScan.running) {
+                    iconIndexScan.running = true
+                    return
+                }
+            }
+            // An app id with no desktop entry of its own: find out which program
+            // really owns the window (a terminal launched with a custom class).
+            if (!item.isStack && item.appId && (!item.desktopId || item.desktopId === item.appId)
+                && !DockModel.processAppId(item.appId)) {
+                root.scanProcessAppIds(false)
+            }
+        }
+    }
 
     function workspaceForSelector(selector) {
         var normalized = DockSettings.normalizeVisibleWorkspace(selector)
@@ -409,6 +566,8 @@ Item {
 
     function screenShowsDock(screen) {
         if (!screen) return false
+        if (root.windowPicker.opened && root.windowPicker.anchorWindow
+            && root.windowPicker.anchorWindow.screen === screen) return true
         var target = DockSettings.dockScreenTarget(
             root.visibleWorkspace,
             root.visibilityMode,
@@ -587,7 +746,7 @@ Item {
         if (!root.autohide) return
         var anyOpenWidget = checkWidgetPanelsOpen()
         var isDockWinHovered = !root.shouldSlideOut && root.anyDockSurfaceHovered()
-        var anyPopupsActive = root.isStackOpen || root.isMenuOpen || root.isEditingFolderTitle || root.isEditMode || (root.widgetPicker && root.widgetPicker.opened)
+        var anyPopupsActive = root.windowPicker.opened || root.isStackOpen || root.isMenuOpen || root.isEditingFolderTitle || root.isEditMode || (root.widgetPicker && root.widgetPicker.opened)
         var anyHover = isDockWinHovered || root.isStackHovered || root.isMenuHovered || root.isWidgetPanelHovered || anyOpenWidget || anyPopupsActive
         if (anyHover) {
             autohideLeaveTimer.stop()
@@ -604,7 +763,7 @@ Item {
         onTriggered: {
             if (!root.autohide) return
             var anyOpenWidget = root.checkWidgetPanelsOpen()
-            var anyPopupsActive = root.isStackOpen || root.isMenuOpen || root.isEditingFolderTitle || root.isEditMode || (root.widgetPicker && root.widgetPicker.opened)
+            var anyPopupsActive = root.windowPicker.opened || root.isStackOpen || root.isMenuOpen || root.isEditingFolderTitle || root.isEditMode || (root.widgetPicker && root.widgetPicker.opened)
             var anyHover = root.anyDockSurfaceHovered() || root.isStackHovered || root.isMenuHovered || root.isWidgetPanelHovered || anyOpenWidget || anyPopupsActive
             if (!anyHover) {
                 root.isDockHovered = false
@@ -655,6 +814,7 @@ Item {
 
     readonly property bool isWorkspaceEmpty: root.activeWorkspaceWindowCount === 0
     readonly property bool isDockActive: root.isDockHovered
+        || root.windowPicker.opened
         || root.isStackHovered
         || root.isMenuHovered
         || root.isWidgetPanelHovered
@@ -678,7 +838,8 @@ Item {
     readonly property string revealTargetMonitorName: DockSettings.screenRevealTarget(
         root.visibilityMode,
         root.visibleWorkspace,
-        root.revealMonitorName,
+        root.windowPicker.opened && root.windowPicker.anchorWindow && root.windowPicker.anchorWindow.screen
+            ? String(root.windowPicker.anchorWindow.screen.name) : root.revealMonitorName,
         Hyprland.focusedMonitor ? String(Hyprland.focusedMonitor.name || "") : ""
     )
 
@@ -900,6 +1061,69 @@ Item {
         }
     }
 
+    // User icon / display-name overrides (hot-reloaded on save):
+    //   ~/.config/omarchy/dock-icons.json
+    property string iconsPath: Quickshell.env("HOME") + "/.config/omarchy/dock-icons.json"
+
+    FileView {
+        id: iconsFile
+        path: root.iconsPath
+        watchChanges: true
+        printErrors: false
+        onLoaded: root.readIconOverrides()
+        onFileChanged: {
+            reload()
+            root.readIconOverrides()
+        }
+    }
+
+    function readIconOverrides() {
+        var map = {}
+        try {
+            var txt = iconsFile.text()
+            if (txt && txt.trim().length > 0) {
+                var parsed = JSON.parse(txt)
+                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) map = parsed
+            }
+        } catch (e) {}
+        DockModel.setIconOverrides(map)
+        root.iconRevision++
+        root.updateDockItems()
+    }
+
+    // Hover label plumbing: the icon hands over its own window and rect, so the
+    // label lands next to it whatever the dock's position on screen.
+    function itemHoverEnter(itemData, source) {
+        if (!itemData || !source || root.isEditMode || root.dockDragActiveIndex >= 0) {
+            root.tooltipRequested = false
+            root.tooltipAppId = ""
+            root.tooltipSource = null
+            return
+        }
+        var win = source.QsWindow ? source.QsWindow.window : null
+        if (!win) {
+            root.tooltipRequested = false
+            root.tooltipAppId = ""
+            root.tooltipSource = null
+            return
+        }
+        var point = win.contentItem.mapFromItem(source, 0, 0)
+        root.tooltipAnchorWindow = win
+        root.tooltipAnchorRect = Qt.rect(point.x, point.y, source.width, source.height)
+        root.tooltipItem = itemData
+        root.tooltipAppId = String(itemData.appId || itemData.id || "")
+        root.tooltipSource = source
+        root.tooltipRequested = true
+    }
+
+    function itemHoverLeave(itemData, source) {
+        var key = itemData ? String(itemData.appId || itemData.id || "") : ""
+        if (key !== "" && root.tooltipAppId === key && root.tooltipSource === source) {
+            root.tooltipRequested = false
+            root.tooltipSource = null
+        }
+    }
+
     Timer {
         id: saveSettingsTimer
         interval: 300
@@ -924,6 +1148,8 @@ Item {
                 }
                 root.overlayMode = normalized.overlayMode
                 root.visibleWorkspace = normalized.visibleWorkspace
+                root.showSingleWindowPicker = normalized.showSingleWindowPicker
+                root.windowPickerLayout = normalized.windowPickerLayout
                 if (s.dockEnabled !== undefined) {
                     root.dockEnabled = (s.dockEnabled === true || s.dockEnabled === "true" || s.dockEnabled === 1 || s.dockEnabled === "1")
                 } else {
@@ -937,6 +1163,8 @@ Item {
                 if (s.showBadges !== undefined) {
                     root.showBadges = (s.showBadges === true)
                 }
+                root.cliAppIcons = (s.cliAppIcons === undefined) ? true : (s.cliAppIcons === true || s.cliAppIcons === "true")
+                DockModel.setCliAppIcons(root.cliAppIcons)
                 if (s.glassmorphism !== undefined) {
                     root.glassmorphism = (s.glassmorphism === true)
                 }
@@ -1000,6 +1228,9 @@ Item {
             autohideEdgeDepth: root.autohideEdgeDepth,
             showFolderTitles: root.showFolderTitles,
             showBadges: root.showBadges,
+            cliAppIcons: root.cliAppIcons,
+            showSingleWindowPicker: root.showSingleWindowPicker,
+            windowPickerLayout: root.windowPickerLayout,
             glassmorphism: root.glassmorphism,
             blurOpacity: root.blurOpacity,
             widgetsEnabled: root.widgetsEnabled,
@@ -1993,6 +2224,7 @@ Item {
     }
 
     function closePopups() {
+        root.windowPicker.close()
         root.activeStackItem = null
         root.activeMenuItem = null
         root.isEditMode = false
@@ -2102,12 +2334,7 @@ Item {
         onBadgeChanged: root.doUpdateDockItems()
     }
 
-    // Clearing a badge rebuilds dockItems, and the Repeater below then destroys
-    // the very delegate whose click is still running. Every statement after the
-    // call — the rest of onItemLeftClicked, and DockItem's own handler, which
-    // has not yet asked for the window — would execute in a dead context and
-    // throw "root is not defined", swallowing the click. Defer the clear so the
-    // click finishes before the delegates are replaced.
+    // Defer notification/model updates until the complete click handler returns.
     function clearBadge(itemData) {
         if (!notifTracker) return
         Qt.callLater(function() {
@@ -2158,6 +2385,7 @@ Item {
             ? DesktopEntries.applications.values
             : (lib && typeof lib.sortedEntries === "function" ? lib.sortedEntries("") : root.appRows)
         root.dockItems = DockModel.buildDockItems(root.pinnedIds, toplevels, active, allEntries, lib, notifTracker.canonicalCounts, notifTracker.canonicalUrgent, root.maxDockItems, minTops)
+        root.inspectItemIcons()
 
         // Refresh active stack item contents if open
         if (root.activeStackItem) {
@@ -2267,7 +2495,7 @@ Item {
             onStreamFinished: {
                 try {
                     var apps = JSON.parse(text)
-                    if (Array.isArray(apps)) {
+                    if (apps && typeof apps === "object" && !Array.isArray(apps)) {
                         DockModel.setDetectedCliApps(apps)
                         root.updateDockItems()
                     }
@@ -2543,6 +2771,7 @@ Item {
         if (Hyprland.focusedMonitor) {
             root.baseDockMonitorName = String(Hyprland.focusedMonitor.name || "")
         }
+        root.scanProcessAppIds()
         root.parseShellConfigFile()
         try {
             var txt = userPinnedFile.text()
@@ -2696,6 +2925,7 @@ Item {
                 id: dockLayer
                 required property var modelData
                 property alias surface: dockSurface
+                property alias appItems: appRepeater
                 property alias hoverHandler: dockHoverHandler
                 // Per-screen slide state: this screen's own reveal state,
                 // unless another screen is the current reveal target (in
@@ -2988,21 +3218,24 @@ Item {
 
                 // 3. Applications & Folders
                 Repeater {
-                    model: root.dockItems
+                    id: appRepeater
+                    // Focus/title updates replace the data array, not the delegates.
+                    model: root.dockItems.length
 
                     DockItem {
-                        itemData: modelData
+                        itemData: root.dockItems[index]
                         itemIndex: index
                         totalCount: root.dockItems.length
                         barPosition: root.barPosition
                         shell: root.shell
+                        parentDock: root
                         slotSize: root.slotSize
                         iconBaseSize: root.iconBaseSize
                         iconRevision: root.iconRevision
                         iconsReady: root.iconsReady
                         systemBorderSize: root.systemBorderSize
                         systemRounding: root.systemRounding
-                        isSelected: (!root.isMenuFromFolder && root.activeMenuItem && (root.activeMenuItem.appId === modelData.appId || root.activeMenuItem.id === modelData.id)) || (root.activeStackItem && (root.activeStackItem.id === modelData.id || root.activeStackItem.appId === modelData.appId))
+                        isSelected: (!root.isMenuFromFolder && root.activeMenuItem && (root.activeMenuItem.appId === itemData.appId || root.activeMenuItem.id === itemData.id)) || (root.activeStackItem && (root.activeStackItem.id === itemData.id || root.activeStackItem.appId === itemData.appId))
                         isMergeTarget: (root.currentMergeTargetIndex === index)
 
                         // 1D Live Rail Displacement (with Left Widget offset)
