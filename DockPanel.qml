@@ -37,6 +37,13 @@ Item {
         barPosition: root.barPosition
     }
 
+    // Omarchy 4.0.3 scopes pluginRegistry to this plugin's own manifest, so
+    // getWidgetSource() can no longer resolve another plugin's entry point.
+    // Declaring this makes the host inject the widget-catalogue facade, whose
+    // snapshot still carries every registered widget's Component.
+    property var barWidgetRegistry: null
+    readonly property int widgetRegistryRevision: barWidgetRegistry ? barWidgetRegistry.revision : 0
+
     // Dock state & Multi-source Live Bar Position Tracking
     property bool opened: true
     property bool pluginEnabled: true
@@ -467,84 +474,17 @@ Item {
         appIdScanProc.running = true
     }
 
-    // Qt's themed lookup only sees icon sizes listed by the icon theme (a
-    // 1024x1024 icon in ~/.local/share/icons is invisible to it), and the shell's
-    // app library is not exposed to third-party plugins. So the dock keeps its own
-    // name -> file index, scanned from the same XDG icon directories, and uses it
-    // whenever a themed lookup comes up empty.
-    Process {
-        id: iconIndexScan
-        running: false
-        command: ["bash", "-c", root.iconIndexCommand()]
-        stdout: SplitParser { onRead: function(line) { root.indexIconLine(line) } }
-        onStarted: root.pendingIconIndex = ({})
-        onExited: {
-            DockModel.setIconIndex(root.pendingIconIndex)
-            root.pendingIconIndex = ({})
-            root.iconRevision++
-            root.updateDockItems()
-        }
-    }
-
-    property var pendingIconIndex: ({})
-    property var iconIndexTried: ({})
-
-    function iconIndexCommand() {
-        return [
-            'dirs="$HOME/.icons $HOME/.local/share/icons";',
-            'IFS=":"; for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do dirs="$dirs $d/icons"; done; unset IFS;',
-            'for ext in svg png; do',
-            '  for base in $dirs; do',
-            '    [[ -d $base ]] && find "$base" \\( -path "*/apps/*" -o -path "*/devices/*" \\) -name "*.$ext" 2>/dev/null;',
-            '  done;',
-            '  find /usr/share/pixmaps -maxdepth 1 -name "*.$ext" 2>/dev/null;',
-            'done'
-        ].join(' ')
-    }
-
-    function indexIconLine(path) {
-        var value = String(path || "").trim()
-        if (value.length === 0) return
-        var slash = value.lastIndexOf("/")
-        var file = slash >= 0 ? value.slice(slash + 1) : value
-        var dot = file.lastIndexOf(".")
-        var name = dot > 0 ? file.slice(0, dot) : file
-        if (name.length > 0 && root.pendingIconIndex[name] === undefined) root.pendingIconIndex[name] = value
-    }
-
-    // Startup scan plus one rescan per unresolved icon name (a package installed
-    // mid-session). Genuinely iconless apps cost a single lookup each.
-    function inspectItemIcons() {
-        if (!iconIndexScan.running && Object.keys(DockModel.getIconIndex()).length === 0) {
-            iconIndexScan.running = true
-            return
-        }
+    // An app id with no desktop entry of its own: find out which program really
+    // owns the window (a terminal launched with a custom class).
+    function inspectItems() {
         var items = root.dockItems || []
         for (var i = 0; i < items.length; i++) {
             var item = items[i]
-            if (!item) continue
-            var names = []
-            if (item.isStack) {
-                var subs = item.subApps || []
-                for (var s = 0; s < subs.length; s++) names.push(subs[s] && (subs[s].rawIcon || subs[s].icon))
-            } else {
-                names.push(item.rawIcon || item.icon)
-            }
-            for (var n = 0; n < names.length; n++) {
-                var name = String(names[n] || "")
-                if (!name || name.indexOf("://") >= 0 || name.indexOf("/") === 0) continue
-                if (root.iconIndexTried[name] === true) continue
-                root.iconIndexTried[name] = true
-                if (!DockModel.iconIndexLookup(name) && !iconIndexScan.running) {
-                    iconIndexScan.running = true
-                    return
-                }
-            }
-            // An app id with no desktop entry of its own: find out which program
-            // really owns the window (a terminal launched with a custom class).
-            if (!item.isStack && item.appId && (!item.desktopId || item.desktopId === item.appId)
+            if (!item || item.isStack) continue
+            if (item.appId && (!item.desktopId || item.desktopId === item.appId)
                 && !DockModel.processAppId(item.appId)) {
                 root.scanProcessAppIds(false)
+                return
             }
         }
     }
@@ -800,28 +740,54 @@ Item {
         root.activeWorkspaceWindowCount = root.getActiveWorkspaceWindowCount()
     }
 
+    onCurrentDockWorkspaceChanged: root.refreshActiveWorkspaceWindowCount()
+
     Connections {
-        target: Hyprland
-        function onFocusedWorkspaceChanged() { root.refreshActiveWorkspaceWindowCount() }
-        function onRawEvent(event) { root.refreshActiveWorkspaceWindowCount() }
+        target: (typeof Hyprland !== "undefined") ? Hyprland : null
+        function onFocusedWorkspaceChanged() {
+            root.refreshActiveWorkspaceWindowCount()
+            workspaceSyncTimer.restart()
+        }
+        function onRawEvent(event) {
+            if (!event) return
+            var name = String(event.name || "")
+            if (name === "openwindow" || name === "closewindow" ||
+                name === "movewindow" || name === "movewindowv2" ||
+                name === "workspace" || name === "workspacev2" ||
+                name === "focusedmon" || name === "changefloatingmode" ||
+                name === "activewindow" || name === "activewindowv2" ||
+                name === "fullscreen") {
+                root.refreshActiveWorkspaceWindowCount()
+                workspaceSyncTimer.restart()
+            }
+        }
     }
 
     Connections {
-        target: Hyprland.workspaces
-        function onValuesChanged() { root.refreshActiveWorkspaceWindowCount() }
+        target: (typeof Hyprland !== "undefined" && Hyprland.workspaces) ? Hyprland.workspaces : null
+        function onValuesChanged() {
+            root.refreshActiveWorkspaceWindowCount()
+            workspaceSyncTimer.restart()
+        }
     }
 
     Connections {
-        target: ToplevelManager.toplevels
-        function onValuesChanged() { root.refreshActiveWorkspaceWindowCount() }
+        target: (typeof ToplevelManager !== "undefined" && ToplevelManager.toplevels) ? ToplevelManager.toplevels : null
+        function onValuesChanged() {
+            root.refreshActiveWorkspaceWindowCount()
+        }
     }
 
     Timer {
-        id: workspaceCheckTimer
-        interval: 200
-        running: (root.visibilityMode === "hover" || root.visibilityMode === "hybrid") && root.workspaceAllowed
-        repeat: true
-        onTriggered: root.refreshActiveWorkspaceWindowCount()
+        id: workspaceSyncTimer
+        interval: 80
+        repeat: false
+        onTriggered: {
+            if (typeof Hyprland !== "undefined" && typeof Hyprland.refreshToplevels === "function") {
+                Hyprland.refreshToplevels()
+            }
+            root.refreshActiveWorkspaceWindowCount()
+        }
     }
 
     readonly property bool isWorkspaceEmpty: root.activeWorkspaceWindowCount === 0
@@ -946,7 +912,12 @@ Item {
     onEffectiveDockScreenChanged: {
         if (root.lastRemapScreen !== root.effectiveDockScreen) {
             root.lastRemapScreen = root.effectiveDockScreen
-            remapTimer.restart()
+            var target = DockSettings.dockScreenTarget(
+                root.visibleWorkspace,
+                root.visibilityMode,
+                root.visibilityOverride
+            )
+            if (target !== "all") remapTimer.restart()
         }
     }
 
@@ -1355,6 +1326,18 @@ Item {
             root.widgetSavedPositions = currentSaved
         }
         saveSettings()
+    }
+
+    // Preferred route since Omarchy 4.0.3: the widget-catalogue facade hands out
+    // the live Component for anything the host has registered, which is every
+    // enabled bar-widget plugin. Returns null when the widget is not registered,
+    // leaving getWidgetSource() to cover the hardcoded first-party panels.
+    function getWidgetComponent(widgetId) {
+        if (!widgetId || widgetId === "omarchy.apps") return null
+        if (!root.barWidgetRegistry) return null
+        var widgets = root.barWidgetRegistry.widgets || {}
+        var entry = widgets[widgetId]
+        return entry && entry.component ? entry.component : null
     }
 
     function getWidgetSource(widgetId) {
@@ -2196,6 +2179,10 @@ Item {
             var c = cands[i]
             if (c.indexOf("://") >= 0) return c
             if (c.indexOf("/") === 0) return "file://" + c
+            var diskHit = DockModel.getDiskIcon(c)
+            if (diskHit) return diskHit
+            var diskHitLow = DockModel.getDiskIcon(c.toLowerCase())
+            if (diskHitLow) return diskHitLow
             if (shell && shell.appLibrary && typeof shell.appLibrary.iconSource === "function") {
                 var src = shell.appLibrary.iconSource(c)
                 if (src && src.length > 0 && src.indexOf("application-x-executable") === -1) {
@@ -2331,6 +2318,7 @@ Item {
         root.pinnedIds = DockModel.parsePinned(userPinnedFile.text() || "")
         root.refreshLayers()
         root.updatePluginEnabled()
+        iconScanDebounceTimer.restart()
         root.updateDockItems()
         return "ok"
     }
@@ -2405,7 +2393,7 @@ Item {
             ? DesktopEntries.applications.values
             : (lib && typeof lib.sortedEntries === "function" ? lib.sortedEntries("") : root.appRows)
         root.dockItems = DockModel.buildDockItems(root.pinnedIds, toplevels, active, allEntries, lib, notifTracker.canonicalCounts, notifTracker.canonicalUrgent, root.maxDockItems, minTops)
-        root.inspectItemIcons()
+        root.inspectItems()
 
         // Refresh active stack item contents if open
         if (root.activeStackItem) {
@@ -2524,6 +2512,36 @@ Item {
         }
     }
 
+    Process {
+        id: iconScannerProc
+        running: false
+        command: ["python3", Qt.resolvedUrl("scripts/dock-minimize.py").toString().replace(/^file:\/\//, ""), "scan-icons"]
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: {
+                try {
+                    var icons = JSON.parse(text)
+                    if (icons && typeof icons === "object") {
+                        DockModel.setDiskIcons(icons)
+                        root.iconRevision++
+                        root.updateDockItems()
+                    }
+                } catch(e) {}
+            }
+        }
+    }
+
+    Timer {
+        id: iconScanDebounceTimer
+        interval: 200
+        repeat: false
+        onTriggered: {
+            if (!iconScannerProc.running) {
+                iconScannerProc.running = true
+            }
+        }
+    }
+
     Timer {
         id: terminalSettleTimer
         interval: 100
@@ -2576,6 +2594,7 @@ Item {
             }
             if (name === "openwindow") {
                 root.lastWindowOpenTime = Date.now()
+                iconScanDebounceTimer.restart()
                 var openArgs = String(event.args || "")
                 var openParts = openArgs.split(",")
                 var openClass = openParts.length >= 3 ? openParts[2].trim().toLowerCase() : ""
@@ -2636,6 +2655,7 @@ Item {
         target: DesktopEntries.applications
         function onValuesChanged() {
             root.appRows = (shell && shell.appLibrary) ? shell.appLibrary.sortedEntries("") : (DesktopEntries.applications.values || [])
+            iconScanDebounceTimer.restart()
             root.iconRevision++
             root.updateDockItems()
         }
@@ -2664,6 +2684,7 @@ Item {
             if (shell && shell.appLibrary && typeof shell.appLibrary.refreshIcons === "function") {
                 shell.appLibrary.refreshIcons()
             }
+            iconScanDebounceTimer.restart()
             root.appRows = (shell && shell.appLibrary) ? shell.appLibrary.sortedEntries("") : []
             root.iconRevision++
             root.doUpdateDockItems()
@@ -2817,6 +2838,7 @@ Item {
                 return origAppLibLaunch.apply(this, arguments)
             }
         }
+        iconScanDebounceTimer.restart()
         root.doUpdateDockItems()
     }
 
@@ -3186,7 +3208,29 @@ Item {
                                 id: leftWidgetLoader
                                 anchors.fill: parent
                                 opacity: 0.0
-                                source: root.getWidgetSource(modelData)
+                                // source and sourceComponent clear one another, so pick one
+                                // imperatively instead of binding both. This runs on every
+                                // registry revision (dozens during shell start-up); re-assigning
+                                // an unchanged source would still tear the item down, so it
+                                // returns early when nothing changed.
+                                function applyWidgetSource() {
+                                    var comp = root.getWidgetComponent(modelData)
+                                    if (comp) {
+                                        if (sourceComponent === comp) return
+                                        source = ""
+                                        sourceComponent = comp
+                                        return
+                                    }
+                                    var url = root.getWidgetSource(modelData)
+                                    if (url !== "" && String(source) === url) return
+                                    sourceComponent = null
+                                    source = url
+                                }
+                                Component.onCompleted: applyWidgetSource()
+                                Connections {
+                                    target: root
+                                    function onWidgetRegistryRevisionChanged() { leftWidgetLoader.applyWidgetSource() }
+                                }
                                 onLoaded: {
                                     if (item) {
                                         root.configureHostedWidget(item, modelData, leftWidgetSlotRoot)
@@ -3479,7 +3523,29 @@ Item {
                                 id: rightWidgetLoader
                                 anchors.fill: parent
                                 opacity: 0.0
-                                source: root.getWidgetSource(modelData)
+                                // source and sourceComponent clear one another, so pick one
+                                // imperatively instead of binding both. This runs on every
+                                // registry revision (dozens during shell start-up); re-assigning
+                                // an unchanged source would still tear the item down, so it
+                                // returns early when nothing changed.
+                                function applyWidgetSource() {
+                                    var comp = root.getWidgetComponent(modelData)
+                                    if (comp) {
+                                        if (sourceComponent === comp) return
+                                        source = ""
+                                        sourceComponent = comp
+                                        return
+                                    }
+                                    var url = root.getWidgetSource(modelData)
+                                    if (url !== "" && String(source) === url) return
+                                    sourceComponent = null
+                                    source = url
+                                }
+                                Component.onCompleted: applyWidgetSource()
+                                Connections {
+                                    target: root
+                                    function onWidgetRegistryRevisionChanged() { rightWidgetLoader.applyWidgetSource() }
+                                }
                                 onLoaded: {
                                     if (item) {
                                         root.configureHostedWidget(item, modelData, rightWidgetSlotRoot)

@@ -145,6 +145,27 @@ class FindDesktopFileTest(unittest.TestCase):
         self.assertEqual(dm.find_desktop_file(None), "")
 
 
+class TerminalIdentifierTest(unittest.TestCase):
+    def test_reverse_dns_terminal_app_ids_are_terminals(self):
+        # normalize() strips only the leading org./com. component, so these
+        # used to normalize to e.g. "mitchellhghostty" and never matched.
+        for app_id in ("com.mitchellh.ghostty", "org.kde.konsole",
+                       "com.gexperts.tilix", "org.gnome.ptyxis",
+                       "com.raggesilver.blackbox"):
+            with self.subTest(app_id=app_id):
+                self.assertTrue(dm.is_terminal_identifier(app_id))
+
+    def test_plain_terminal_names_still_match(self):
+        for name in ("ghostty", "foot", "kitty", "alacritty"):
+            with self.subTest(name=name):
+                self.assertTrue(dm.is_terminal_identifier(name))
+
+    def test_non_terminals_are_not_terminals(self):
+        for app_id in ("firefox", "org.mozilla.firefox", "org.gnome.Nautilus"):
+            with self.subTest(app_id=app_id):
+                self.assertFalse(dm.is_terminal_identifier(app_id))
+
+
 class ChromePWAMatchingTest(unittest.TestCase):
     def test_real_world_chrome_pwa_classes(self):
         # Issue #28 real-world examples:
@@ -198,5 +219,20 @@ class PickTargetExplicitAddressTest(unittest.TestCase):
         self.assertIs(picked, target_win)
 
 
+class ScanDiskIconsTest(unittest.TestCase):
+    def test_scan_disk_icons_finds_system_icons(self):
+        icons = dm.scan_disk_icons()
+        self.assertIsInstance(icons, dict)
+        self.assertGreater(len(icons), 0)
+        # omanta and omashow should be discovered if installed on this system
+        if os.path.exists("/usr/share/icons/hicolor/scalable/apps/omanta.svg"):
+            self.assertIn("omanta", icons)
+            self.assertTrue(icons["omanta"].endswith(".svg"))
+        if os.path.exists("/usr/share/icons/hicolor/scalable/apps/omashow.svg"):
+            self.assertIn("omashow", icons)
+            self.assertTrue(icons["omashow"].endswith(".svg"))
+
+
 if __name__ == "__main__":
     unittest.main()
+

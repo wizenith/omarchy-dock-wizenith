@@ -61,9 +61,6 @@ var getCliAppIcons = Matcher.getCliAppIcons;
 var setProcessAppIds = Matcher.setProcessAppIds;
 var getProcessAppIds = Matcher.getProcessAppIds;
 var processAppId = Matcher.processAppId;
-var setIconIndex = Matcher.setIconIndex;
-var getIconIndex = Matcher.getIconIndex;
-var iconIndexLookup = Matcher.iconIndexLookup;
 var isBrowserApp = Matcher.isBrowserApp;
 var matchToplevel = Matcher.matchToplevel;
 var toCanonical = Matcher.toCanonical;
@@ -71,6 +68,8 @@ var getBadgeInfo = Matcher.getBadgeInfo;
 var buildDockItems = Matcher.buildDockItems;
 var setPendingCliHint = Matcher.setPendingCliHint;
 var setDetectedCliApps = Matcher.setDetectedCliApps;
+var setDiskIcons = Matcher.setDiskIcons;
+var getDiskIcon = Matcher.getDiskIcon;
 
 // =========================================================================
 // 4. Dock Widget Management (DockWidgets.js)

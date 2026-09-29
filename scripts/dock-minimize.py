@@ -42,9 +42,15 @@ IGNORED_COMMAND_PREFIXES = [
 ]
 
 KNOWN_TERMINALS = [
-    "foot", "footclient", "kitty", "alacritty", "ghostty", "wezterm",
-    "org.wezfurlong.wezterm", "gnome-terminal", "konsole", "xfce4-terminal",
-    "xterm", "urxvt", "rxvt", "termite", "tilix", "st", "rio"
+    "foot", "footclient", "kitty", "alacritty", "org.alacritty",
+    "ghostty", "com.mitchellh.ghostty", "wezterm", "wezterm-gui",
+    "org.wezfurlong.wezterm", "gnome-terminal", "org.gnome.terminal",
+    "konsole", "org.kde.konsole", "xfce4-terminal", "tilix",
+    "com.gexperts.tilix", "xterm", "uxterm", "urxvt", "rxvt",
+    "rxvt-unicode", "termite", "terminator", "lxterminal", "st",
+    "simple-terminal", "rio", "contour", "blackbox",
+    "com.raggesilver.blackbox", "ptyxis", "org.gnome.ptyxis",
+    "tabby", "hyper", "warp", "warp-terminal"
 ]
 
 def get_terminal_child_app(pid):
@@ -146,10 +152,20 @@ def extract_cli_app(title, pid=None):
 def is_terminal_identifier(s):
     if not s:
         return False
-    norm = normalize(s)
+    raw = str(s).lower().strip()
+    if raw.endswith(".desktop"):
+        raw = raw[:-8]
+    # normalize() strips only the org./com./net./io. prefix, so a reverse-DNS
+    # app-id such as "com.mitchellh.ghostty" normalizes to "mitchellhghostty"
+    # and never equals "ghostty". Also test the last dotted segment.
+    candidates = [normalize(s)]
+    if "." in raw:
+        candidates.append(normalize(raw.rsplit(".", 1)[-1]))
     for term in KNOWN_TERMINALS:
-        if norm == normalize(term):
-            return True
+        nt = normalize(term)
+        for cand in candidates:
+            if cand and cand == nt:
+                return True
     return False
 
 def get_hypr_socket():
@@ -393,15 +409,137 @@ def launch_fallback(queries):
                 except Exception:
                     pass
 
+def scan_disk_icons():
+    """Scan system and user icon directories for app icons.
+
+    Returns a dict mapping lowercase icon base name -> absolute file path.
+    Scalable SVG icons take precedence over PNGs.
+    """
+    search_subdirs = [
+        "hicolor/scalable/apps",
+        "hicolor/scalable/devices",
+        "hicolor/256x256/apps",
+        "hicolor/128x128/apps",
+        "hicolor/48x48/apps",
+        "hicolor/32x32/apps",
+        "hicolor/16x16/apps",
+        "scalable/apps",
+        "scalable/devices"
+    ]
+
+    home = os.path.expanduser("~")
+    base_dirs = [
+        os.path.join(home, ".local", "share", "icons"),
+        os.path.join(home, ".icons"),
+        "/usr/local/share/icons",
+        "/usr/share/icons"
+    ]
+    xdg_dirs = [d for d in os.environ.get("XDG_DATA_DIRS", "").split(":") if d]
+    for d in xdg_dirs:
+        ic = os.path.join(d, "icons")
+        if ic not in base_dirs and os.path.isdir(ic):
+            base_dirs.append(ic)
+
+    svg_icons = {}
+    png_icons = {}
+
+    for b in base_dirs:
+        for sub in search_subdirs:
+            p = os.path.join(b, sub)
+            if os.path.isdir(p):
+                try:
+                    for f in os.listdir(p):
+                        fl = f.lower()
+                        if fl.endswith(".svg"):
+                            k = fl[:-4]
+                            if k not in svg_icons:
+                                svg_icons[k] = os.path.join(p, f)
+                        elif fl.endswith(".png"):
+                            k = fl[:-4]
+                            if k not in png_icons:
+                                png_icons[k] = os.path.join(p, f)
+                except Exception:
+                    pass
+
+    for p in ("/usr/share/pixmaps", "/usr/local/share/pixmaps"):
+        if os.path.isdir(p):
+            try:
+                for f in os.listdir(p):
+                    fl = f.lower()
+                    if fl.endswith(".svg"):
+                        k = fl[:-4]
+                        if k not in svg_icons:
+                            svg_icons[k] = os.path.join(p, f)
+                    elif fl.endswith(".png"):
+                        k = fl[:-4]
+                        if k not in png_icons:
+                            png_icons[k] = os.path.join(p, f)
+            except Exception:
+                pass
+
+    # The curated subdirectories above are the sizes Qt's index.theme lists. Icons
+    # are also installed at sizes the theme never mentions (a 1024x1024 icon in
+    # ~/.local/share/icons/hicolor) and Qt's themed lookup cannot see those, so the
+    # app would fall back to the generic icon. Walk the user icon trees and each
+    # system tree's hicolor (where such icons land) and take any */apps/* or
+    # */devices/* file. Other themes keep their curated coverage only, so the walk
+    # stays cheap enough to run whenever icons may have changed.
+    deep_roots = [
+        os.path.join(home, ".local", "share", "icons"),
+        os.path.join(home, ".icons"),
+        "/usr/local/share/icons"
+    ]
+    for b in base_dirs:
+        if b in deep_roots:
+            continue
+        hicolor = os.path.join(b, "hicolor")
+        if os.path.isdir(hicolor):
+            deep_roots.append(hicolor)
+
+    for b in deep_roots:
+        for root, dirs, files in os.walk(b):
+            if root[len(b):].count(os.sep) > 3:
+                dirs[:] = []
+                continue
+            parts = root[len(b):].split(os.sep)
+            if "apps" not in parts and "devices" not in parts:
+                continue
+            for f in files:
+                fl = f.lower()
+                if fl.endswith(".svg"):
+                    k = fl[:-4]
+                    if k not in svg_icons:
+                        svg_icons[k] = os.path.join(root, f)
+                elif fl.endswith(".png"):
+                    k = fl[:-4]
+                    if k not in png_icons:
+                        png_icons[k] = os.path.join(root, f)
+
+    merged = dict(png_icons)
+    merged.update(svg_icons)
+
+    extras = {}
+    for k, v in merged.items():
+        if "." in k:
+            suffix = k.rsplit(".", 1)[-1]
+            if suffix and suffix not in merged and suffix not in extras:
+                extras[suffix] = v
+    merged.update(extras)
+    return merged
+
 def main():
     if len(sys.argv) < 2:
         return
 
     mode = "minimize"
     arg_start = 1
-    if sys.argv[1] in ("minimize", "restore", "restore-or-launch", "toggle-active", "toggle-or-cycle", "toggle-instance", "activate-instance", "toggle", "activate", "scan-cli", "scan-app-ids"):
+    if sys.argv[1] in ("minimize", "restore", "restore-or-launch", "toggle-active", "toggle-or-cycle", "toggle-instance", "activate-instance", "toggle", "activate", "scan-cli", "scan-app-ids", "scan-icons"):
         mode = sys.argv[1]
         arg_start = 2
+
+    if mode == "scan-icons":
+        print(json.dumps(scan_disk_icons()))
+        return
 
     queries = [q.strip() for q in sys.argv[arg_start:] if q.strip()]
     if not queries and mode not in ("scan-cli", "scan-app-ids"):

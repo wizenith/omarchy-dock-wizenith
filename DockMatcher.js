@@ -482,6 +482,13 @@ function unwrapEntry(e) {
     return e;
 }
 
+// Quickshell's DesktopEntry exposes the Exec line as `execString`, while mock objects / configs may use `exec`.
+function getEntryExec(e) {
+    if (!e) return "";
+    return String(e.execString || e.exec || "");
+}
+
+
 function findEntry(desktopEntries, appId) {
     var id = stripDesktop(appId);
     if (!id) return null;
@@ -503,7 +510,7 @@ function findEntry(desktopEntries, appId) {
                 var tre = unwrapEntry(list[tr]);
                 if (!tre) continue;
                 var trId = stripDesktop(tre.id || "").toLowerCase();
-                var trExec = String(tre.exec || "").toLowerCase().split(/\s+/)[0].split("/").pop();
+                var trExec = getEntryExec(tre).toLowerCase().split(/\s+/)[0].split("/").pop();
                 if (trId === "transmission-gtk" || trId === "transmission-qt" || trId === "transmission" || trId === "com.transmissionbt.transmission" ||
                     trExec === "transmission-gtk" || trExec === "transmission-qt" || trExec === "transmission") {
                     return tre;
@@ -517,7 +524,7 @@ function findEntry(desktopEntries, appId) {
             for (var st = 0; st < list.length; st++) {
                 var ste = unwrapEntry(list[st]);
                 if (!ste) continue;
-                var steExec = String(ste.exec || "").toLowerCase();
+                var steExec = getEntryExec(ste).toLowerCase();
                 var steIcon = String(ste.icon || "").toLowerCase();
                 if (steExec.indexOf("rungameid/" + gameId) !== -1 || steIcon === "steam_icon_" + gameId || steIcon === "steam_app_" + gameId) {
                     return ste;
@@ -531,7 +538,7 @@ function findEntry(desktopEntries, appId) {
                 var ybe = unwrapEntry(list[yb]);
                 if (!ybe) continue;
                 var ybeId = stripDesktop(ybe.id || "").toLowerCase();
-                var ybeExec = String(ybe.exec || "").toLowerCase().split(/\s+/)[0].split("/").pop();
+                var ybeExec = getEntryExec(ybe).toLowerCase().split(/\s+/)[0].split("/").pop();
                 if (ybeId === "yandex-browser" || ybeId === "ru.yandex.desktop.browser" || ybeExec === "yandex-browser-stable" || ybeExec === "yandex-browser") {
                     return ybe;
                 }
@@ -559,7 +566,7 @@ function findEntry(desktopEntries, appId) {
             for (var c = 0; c < list.length; c++) {
                 var ce = unwrapEntry(list[c]);
                 if (!ce) continue;
-                var cExec = String(ce.exec || "").toLowerCase();
+                var cExec = getEntryExec(ce).toLowerCase();
                 var cId = stripDesktop(ce.id || "").toLowerCase();
                 if (cExec.indexOf(chromeDom) !== -1 || cId.indexOf(chromeDom) !== -1) {
                     return ce;
@@ -611,7 +618,7 @@ function findEntry(desktopEntries, appId) {
                 if (!spe) continue;
                 var speId = stripDesktop(spe.id || "").toLowerCase();
                 var speName = String(spe.name || "").toLowerCase();
-                var speExec = String(spe.exec || "").toLowerCase().split(/\s+/)[0].split("/").pop();
+                var speExec = getEntryExec(spe).toLowerCase().split(/\s+/)[0].split("/").pop();
                 if (speId === strippedTarget || speName === strippedTarget || speExec === strippedTarget ||
                     speId === lastPartTarget || speName === lastPartTarget || speExec === lastPartTarget) {
                     return spe;
@@ -666,7 +673,7 @@ function findEntry(desktopEntries, appId) {
         for (var k = 0; k < list.length; k++) {
             var el = unwrapEntry(list[k]);
             if (!el) continue;
-            var exec = String(el.exec || "").toLowerCase();
+            var exec = getEntryExec(el).toLowerCase();
             var execBin = exec.split(/\s+/)[0].split("/").pop();
             var name = String(el.name || "").toLowerCase();
             if (execBin === target || name === target || (cleanTarget && (execBin === cleanTarget || name === cleanTarget)) || (firstToken.length >= 3 && (execBin === firstToken || name === firstToken))) return el;
@@ -771,30 +778,51 @@ function applyItemOverride(item, appId, desktopId, appClass) {
     return item;
 }
 
-// name -> icon file, scanned from the XDG icon dirs by the dock itself. Qt's themed
-// lookup only sees sizes the icon theme lists (a 1024x1024 icon in
-// ~/.local/share/icons is invisible to it), and the shell's app library is not
-// exposed to third-party plugins, so those icons are resolved from here instead.
-var _iconIndex = {};
+var _diskIcons = {};
 
-function setIconIndex(index) {
-    _iconIndex = (index && typeof index === "object" && !Array.isArray(index)) ? index : {};
+function setDiskIcons(iconsObj) {
+    _diskIcons = {};
+    if (iconsObj && typeof iconsObj === "object") {
+        for (var k in iconsObj) {
+            var path = iconsObj[k];
+            if (path && typeof path === "string") {
+                _diskIcons[k] = path;
+                var low = k.toLowerCase();
+                if (!_diskIcons[low]) _diskIcons[low] = path;
+                if (low.indexOf(".") !== -1) {
+                    var parts = low.split(".");
+                    var last = parts[parts.length - 1];
+                    if (last && !_diskIcons[last]) _diskIcons[last] = path;
+                }
+            }
+        }
+    }
 }
 
-function getIconIndex() {
-    return _iconIndex;
-}
+function getDiskIcon(name) {
+    if (!name) return "";
+    var s = String(name).trim();
+    if (s.indexOf("://") >= 0) return s;
+    if (s.charAt(0) === "/") return "file://" + s;
 
-// An absolute path for the icon name, or "" when the name is unknown.
-function iconIndexLookup(name) {
-    var value = String(name === undefined || name === null ? "" : name).trim();
-    if (!value) return "";
-    var hit = _iconIndex[value];
-    if (hit === undefined) hit = _iconIndex[value.toLowerCase()];
-    var path = String(hit === undefined || hit === null ? "" : hit);
-    if (!path) return "";
-    if (path.indexOf("file://") === 0 || path.indexOf("image://") === 0) return path;
-    if (path.charAt(0) === "/") return "file://" + path;
+    var low = s.toLowerCase();
+    if (_diskIcons[low]) return "file://" + _diskIcons[low];
+    if (_diskIcons[s]) return "file://" + _diskIcons[s];
+
+    var cleaned = cleanWindowAppId(s);
+    if (cleaned && _diskIcons[cleaned]) return "file://" + _diskIcons[cleaned];
+    if (cleaned && _diskIcons[cleaned.toLowerCase()]) return "file://" + _diskIcons[cleaned.toLowerCase()];
+
+    var stripped = stripDesktop(s);
+    if (stripped && _diskIcons[stripped]) return "file://" + _diskIcons[stripped];
+    if (stripped && _diskIcons[stripped.toLowerCase()]) return "file://" + _diskIcons[stripped.toLowerCase()];
+
+    if (low.indexOf(".") !== -1) {
+        var dotParts = low.split(".");
+        var dotLast = dotParts[dotParts.length - 1];
+        if (dotLast && _diskIcons[dotLast]) return "file://" + _diskIcons[dotLast];
+    }
+
     return "";
 }
 
@@ -808,6 +836,8 @@ function resolveIcon(entry, appId, appLibrary) {
         var iconVal = String(entry.icon).trim();
         if (iconVal.indexOf("file://") === 0 || iconVal.indexOf("image://") === 0) return iconVal;
         if (iconVal.charAt(0) === "/") return "file://" + iconVal;
+        var diskFound = getDiskIcon(iconVal);
+        if (diskFound) return diskFound;
         if (appLibrary && typeof appLibrary.iconSource === "function") {
             var src = appLibrary.iconSource(iconVal);
             if (src && src.length > 0 && src.indexOf("application-x-executable") === -1) return src;
@@ -815,31 +845,51 @@ function resolveIcon(entry, appId, appLibrary) {
         return iconVal;
     }
     var id = stripDesktop(appId);
+    var diskIdFound = getDiskIcon(id);
+    if (diskIdFound) return diskIdFound;
+
     if (appLibrary && typeof appLibrary.iconSource === "function") {
         var candidates = getCandidates(entry ? entry.icon : "", "", id);
         for (var i = 0; i < candidates.length; i++) {
             var cand = candidates[i];
             if (cand.indexOf("file://") === 0 || cand.indexOf("image://") === 0) return cand;
             if (cand.charAt(0) === "/") return "file://" + cand;
+            var cDisk = getDiskIcon(cand);
+            if (cDisk) return cDisk;
             var cSrc = appLibrary.iconSource(cand);
             if (cSrc && cSrc.length > 0 && cSrc.indexOf("application-x-executable") === -1) return cSrc;
         }
 
         // Try hyphenated/spaced variations (e.g. "Google Maps" -> "google-maps")
         var hyp = id.toLowerCase().replace(/\s+/g, "-");
+        var hypDisk = getDiskIcon(hyp);
+        if (hypDisk) return hypDisk;
         var src3 = appLibrary.iconSource(hyp);
         if (src3 && src3.length > 0 && src3.indexOf("application-x-executable") === -1) return src3;
 
         var spc = id.toLowerCase().replace(/[-_]+/g, " ");
+        var spcDisk = getDiskIcon(spc);
+        if (spcDisk) return spcDisk;
         var src4 = appLibrary.iconSource(spc);
         if (src4 && src4.length > 0 && src4.indexOf("application-x-executable") === -1) return src4;
+    } else {
+        var cands = getCandidates(entry ? entry.icon : "", "", id);
+        for (var ci = 0; ci < cands.length; ci++) {
+            var cd = getDiskIcon(cands[ci]);
+            if (cd) return cd;
+        }
     }
     return id || "application-x-executable";
 }
 
 function isBrowserApp(id) {
     var s = String(id || "").toLowerCase();
-    return s === "google-chrome" || s === "google-chrome-stable" || s === "chromium" || s === "brave" || s === "brave-browser" || s === "brave-origin" || s === "microsoft-edge" || s === "opera" || s === "vivaldi" || s === "yandex-browser" || s === "yandex-browser-stable" || s === "ru.yandex.desktop.browser";
+    return s === "google-chrome" || s === "google-chrome-stable" || s === "chromium" ||
+           s === "brave" || s === "brave-browser" || s === "brave-origin" ||
+           s === "microsoft-edge" || s === "opera" || s === "vivaldi" ||
+           s === "yandex-browser" || s === "yandex-browser-stable" || s === "ru.yandex.desktop.browser" ||
+           s === "firefox" || s === "firefox-esr" || s === "zen-browser" || s === "zen" ||
+           s === "waterfox" || s === "librewolf" || s === "floorp";
 }
 
 var KNOWN_TERMINALS = [
@@ -951,7 +1001,7 @@ function extractCliApp(title, desktopEntries) {
                 // GUI app (e.g. a terminal titled "… Obsidian …") must never claim that GUI app.
                 if (de.runInTerminal !== true) continue;
                 var deId = stripDesktop(de.id || "").toLowerCase();
-                var deExec = String(de.exec || "").toLowerCase().split(/\s+/)[0].split("/").pop();
+                var deExec = getEntryExec(de).toLowerCase().split(/\s+/)[0].split("/").pop();
                 if ((token === deId || token === deExec) && !isTerminalApp(deId, de)) {
                     return deId || token;
                 }
@@ -1094,7 +1144,7 @@ function hasRealDesktopEntry(entries, appId) {
         if (!e) continue;
         var eId = stripDesktop(e.id || "").toLowerCase();
         var eName = String(e.name || "").toLowerCase();
-        var exec = String(e.exec || "").toLowerCase();
+        var exec = getEntryExec(e).toLowerCase();
         var execBin = exec.split(/\s+/)[0].split("/").pop();
         if (eId === target || eName === target || execBin === target) {
             return true;
@@ -1123,6 +1173,37 @@ function matchToplevel(toplevel, appId, entry, desktopEntries, cachedCliApp) {
     // If this window is a Chrome Web App (e.g. chrome-maps.google.com__-Default):
     // Standard web browser dock items (Google Chrome, Chromium, Brave) should NOT swallow it!
     if (isWebAppWindow && isBrowserApp(cleanId)) {
+        return false;
+    }
+
+    // Browser window matching:
+    // If this window is a standard web browser (google-chrome, yandex-browser, firefox, brave, etc.):
+    // It can ONLY match its corresponding browser dock item. It must NEVER be swallowed
+    // by web apps (omarchy-launch-webapp, chrome-*, etc.) or unrelated dock items!
+    if (isBrowserApp(appClassClean) || isBrowserApp(baseAppClass)) {
+        var isYandexTop = (appClassClean === "yandex-browser" || appClassClean === "yandex-browser-stable" || appClassClean === "ru.yandex.desktop.browser" || baseAppClass === "yandex-browser");
+        var isChromeTop = (appClassClean === "google-chrome" || appClassClean === "google-chrome-stable" || appClassClean === "chromium" || baseAppClass === "google-chrome");
+        var isBraveTop = (appClassClean === "brave" || appClassClean === "brave-browser" || appClassClean === "brave-origin" || baseAppClass === "brave");
+        var isFirefoxTop = (appClassClean === "firefox" || appClassClean === "firefox-esr" || baseAppClass === "firefox");
+        var isZenTop = (appClassClean === "zen-browser" || appClassClean === "zen" || baseAppClass === "zen");
+
+        if (cleanId === baseAppClass || cleanId === appClassClean) return true;
+        if (entry) {
+            var bEntryId = stripDesktop(entry.id || "").toLowerCase();
+            var bExec = getEntryExec(entry).toLowerCase().split(/\s+/)[0].split("/").pop();
+            if (bEntryId === baseAppClass || bEntryId === appClassClean || bExec === baseAppClass || bExec === appClassClean) return true;
+            if (isYandexTop && (bEntryId === "yandex-browser" || bEntryId === "ru.yandex.desktop.browser" || bExec === "yandex-browser-stable" || bExec === "yandex-browser")) return true;
+            if (isChromeTop && (bEntryId === "google-chrome" || bEntryId === "google-chrome-stable" || bEntryId === "chromium" || bExec === "google-chrome-stable" || bExec === "google-chrome" || bExec === "chromium")) return true;
+            if (isBraveTop && (bEntryId === "brave" || bEntryId === "brave-browser" || bEntryId === "brave-origin" || bExec === "brave" || bExec === "brave-browser" || bExec === "brave-origin")) return true;
+            if (isFirefoxTop && (bEntryId === "firefox" || bEntryId === "firefox-esr" || bExec === "firefox" || bExec === "firefox-esr")) return true;
+            if (isZenTop && (bEntryId === "zen-browser" || bEntryId === "zen" || bExec === "zen-browser" || bExec === "zen")) return true;
+        }
+        if (isYandexTop && (cleanId === "yandex-browser" || cleanId === "yandex-browser-stable" || cleanId === "ru.yandex.desktop.browser")) return true;
+        if (isChromeTop && (cleanId === "google-chrome" || cleanId === "google-chrome-stable" || cleanId === "chromium")) return true;
+        if (isBraveTop && (cleanId === "brave" || cleanId === "brave-browser" || cleanId === "brave-origin")) return true;
+        if (isFirefoxTop && (cleanId === "firefox" || cleanId === "firefox-esr")) return true;
+        if (isZenTop && (cleanId === "zen-browser" || cleanId === "zen")) return true;
+
         return false;
     }
 
@@ -1158,7 +1239,7 @@ function matchToplevel(toplevel, appId, entry, desktopEntries, cachedCliApp) {
         if (isTransDockItem) return true;
         if (entry) {
             var trEntryId = stripDesktop(entry.id || "").toLowerCase();
-            var trEntryExec = String(entry.exec || "").toLowerCase().split(/\s+/)[0].split("/").pop();
+            var trEntryExec = getEntryExec(entry).toLowerCase().split(/\s+/)[0].split("/").pop();
             if (trEntryId === "transmission-gtk" || trEntryId === "transmission-qt" || trEntryId === "transmission" ||
                 trEntryExec === "transmission-gtk" || trEntryExec === "transmission-qt" || trEntryExec === "transmission") {
                 return true;
@@ -1172,21 +1253,11 @@ function matchToplevel(toplevel, appId, entry, desktopEntries, cachedCliApp) {
         var steamGameId = appClass.replace(/^steam_app_/, "");
         if (cleanId === appClass || cleanId === ("steam_icon_" + steamGameId)) return true;
         if (entry) {
-            var stExec = String(entry.exec || "").toLowerCase();
+            var stExec = getEntryExec(entry).toLowerCase();
             var stIcon = String(entry.icon || "").toLowerCase();
             if (stExec.indexOf("rungameid/" + steamGameId) !== -1 || stIcon === "steam_icon_" + steamGameId || stIcon === "steam_app_" + steamGameId) {
                 return true;
             }
-        }
-    }
-
-    // Yandex Browser matching
-    if (appClass === "yandex-browser" || appClass === "yandex-browser-stable") {
-        if (cleanId === "yandex-browser" || cleanId === "yandex-browser-stable" || cleanId === "ru.yandex.desktop.browser") return true;
-        if (entry) {
-            var yId = stripDesktop(entry.id || "").toLowerCase();
-            var yExec = String(entry.exec || "").toLowerCase().split(/\s+/)[0].split("/").pop();
-            if (yId === "yandex-browser" || yId === "ru.yandex.desktop.browser" || yExec === "yandex-browser-stable" || yExec === "yandex-browser") return true;
         }
     }
 
@@ -1221,9 +1292,9 @@ function matchToplevel(toplevel, appId, entry, desktopEntries, cachedCliApp) {
         var entryIcon = String(entry.icon || "").toLowerCase();
         if (entryIcon && (normClass === normalizeKey(entryIcon) || normBaseClass === normalizeKey(entryIcon))) return true;
 
-        if (entry.exec) {
-            var execStr = String(entry.exec).trim().toLowerCase();
-            var execBase = execStr.split(/\s+/)[0].split("/").pop();
+        var entryExecStr = getEntryExec(entry).trim().toLowerCase();
+        if (entryExecStr) {
+            var execBase = entryExecStr.split(/\s+/)[0].split("/").pop();
             if (execBase && execBase !== "env" && execBase !== "sh" && execBase !== "bash" && execBase !== "flatpak" && execBase !== "bwrap" && execBase !== "wine" && execBase !== "uwsm-app" && !isWebAppWindow) {
                 if (appClass === execBase || appClassClean === execBase || baseAppClass === execBase || (firstClassToken.length >= 3 && firstClassToken === execBase)) return true;
             }
@@ -1232,7 +1303,8 @@ function matchToplevel(toplevel, appId, entry, desktopEntries, cachedCliApp) {
 
     // 4. Chrome / Web App Matching
     if (isWebAppWindow) {
-        if (entry && entry.exec && entry.exec.toLowerCase().indexOf(chromeDom) !== -1) return true;
+        var cEntryExec = getEntryExec(entry).toLowerCase();
+        if (entry && cEntryExec && cEntryExec.indexOf(chromeDom) !== -1) return true;
         if (entry && entry.id && entry.id.toLowerCase().indexOf(chromeDom) !== -1) return true;
         if (cleanId && cleanId.indexOf(chromeDom) !== -1) return true;
         if (normId.length > 0 && normId.indexOf(normalizeKey(chromeDom)) !== -1) return true;
@@ -1258,12 +1330,12 @@ function matchToplevel(toplevel, appId, entry, desktopEntries, cachedCliApp) {
         }
     }
 
-    // 5. Window Title Match for web apps / webapp launchers
-    if (entry && entry.exec && entry.exec.toLowerCase().indexOf("omarchy-launch-webapp") !== -1) {
+    // 5. Window Title Match for web apps / webapp launchers (only for web app windows, never 1-2 letter substrings)
+    if (isWebAppWindow && entry && getEntryExec(entry).toLowerCase().indexOf("omarchy-launch-webapp") !== -1) {
         if (entry.name && title.length > 0) {
             var normName = normalizeKey(entry.name);
             var normTitle = normalizeKey(title);
-            if (normTitle.indexOf(normName) !== -1 || normName.indexOf(normTitle) !== -1) return true;
+            if (normName.length >= 3 && normTitle.indexOf(normName) !== -1) return true;
         }
     }
 
@@ -1311,6 +1383,14 @@ function toCanonical(str) {
     if (raw.indexOf("code") !== -1 || raw.indexOf("vscodium") !== -1 || raw.indexOf("vscode") !== -1) return "code";
     if (raw.indexOf("nautilus") !== -1 || raw.indexOf("org.gnome.nautilus") !== -1 || raw.indexOf("thunar") !== -1 || raw.indexOf("dolphin") !== -1) return "nautilus";
     if (raw.indexOf("kitty") !== -1 || raw.indexOf("alacritty") !== -1 || raw.indexOf("ghostty") !== -1 || raw.indexOf("foot") !== -1 || raw.indexOf("terminal") !== -1) return "terminal";
+    // Chromium web apps ("chrome-youtube.com__-Default") must keep their own site
+    // as the key. Folding them all into "chrome" made a number in ONE app's title
+    // (YouTube's "(13) ...") show as a badge on EVERY web app (Maps too).
+    var webApp = raw.match(/^chrome-([a-z0-9.-]+?)__/);
+    if (webApp) {
+        var labels = webApp[1].replace(/^(www|web|app|m)\./, "").split(".");
+        if (labels[0]) return labels[0];
+    }
     if (raw.indexOf("chrome") !== -1 || raw.indexOf("chromium") !== -1) return "chrome";
     if (raw.indexOf("firefox") !== -1 || raw.indexOf("zen-browser") !== -1) return "firefox";
 
@@ -1343,7 +1423,7 @@ function getBadgeInfo(badgeCounts, urgentCounts, appId, entry, name, desktopId) 
         desktopId ? stripDesktop(desktopId) : "",
         name,
         entry ? entry.name : "",
-        entry ? entry.exec : ""
+        entry ? getEntryExec(entry) : ""
     ];
     var keys = [];
     for (var k = 0; k < rawKeys.length; k++) {
@@ -1414,8 +1494,9 @@ function createDesktopEntryIndex(desktopEntries) {
             if (iconNorm && !byNorm[iconNorm]) byNorm[iconNorm] = e;
         }
 
-        if (e.exec) {
-            var execBase = String(e.exec).trim().split(/\s+/)[0].split("/").pop().toLowerCase();
+        var eExecVal = getEntryExec(e);
+        if (eExecVal) {
+            var execBase = eExecVal.trim().split(/\s+/)[0].split("/").pop().toLowerCase();
             if (execBase && !byExec[execBase]) byExec[execBase] = e;
         }
     }
@@ -1458,7 +1539,7 @@ function findEntryFast(index, appId) {
         for (var s = 0; s < index.list.length; s++) {
             var se = index.list[s];
             if (!se) continue;
-            var sExec = String(se.exec || "").toLowerCase();
+            var sExec = getEntryExec(se).toLowerCase();
             var sIcon = String(se.icon || "").toLowerCase();
             if (sExec.indexOf("rungameid/" + fastGameId) !== -1 || sIcon === "steam_icon_" + fastGameId || sIcon === "steam_app_" + fastGameId) {
                 return se;
@@ -1728,7 +1809,7 @@ function buildDockItems(pinnedList, toplevelsList, activeToplevel, desktopEntrie
                 subApps.push({
                     appId: sAppId,
                     desktopId: sDesktopId,
-                    exec: (sEntry && sEntry.exec) ? sEntry.exec : "",
+                    exec: sEntry ? getEntryExec(sEntry) : "",
                     name: sName,
                     icon: sIcon,
                     rawIcon: sRawIcon,
@@ -1777,7 +1858,7 @@ function buildDockItems(pinnedList, toplevelsList, activeToplevel, desktopEntrie
             var name = entry && entry.name ? entry.name : appId;
             var iconSource = (entry && entry.iconSource) ? entry.iconSource : "";
             var desktopId = (entry && entry.id) ? entry.id : appId;
-            var exec = (entry && entry.exec) ? entry.exec : "";
+            var exec = entry ? getEntryExec(entry) : "";
 
             var pRes = collectMatchingToplevels(appId, entry, entries, toplevels, assignedTops, toplevelCliApps, activeToplevel, isTopMinimized, getTopKey);
             var pAppClass = (pRes.matching && pRes.matching.length > 0 && pRes.matching[0].appId) ? pRes.matching[0].appId : "";
@@ -1866,7 +1947,7 @@ function buildDockItems(pinnedList, toplevelsList, activeToplevel, desktopEntrie
         var rName = (rEntry && rEntry.name) ? rEntry.name : (rTitle || rAppId || "App");
         var rIconSource = (rEntry && rEntry.iconSource) ? rEntry.iconSource : "";
         var rDesktopId = (rEntry && rEntry.id) ? rEntry.id : (rAppId || "");
-        var rExec = (rEntry && rEntry.exec) ? rEntry.exec : "";
+        var rExec = rEntry ? getEntryExec(rEntry) : "";
 
         // Find all unassigned toplevels for this unpinned app
         var rRes = collectMatchingToplevels(rAppId, rEntry, entries, toplevels, assignedTops, toplevelCliApps, activeToplevel, isTopMinimized, getTopKey);

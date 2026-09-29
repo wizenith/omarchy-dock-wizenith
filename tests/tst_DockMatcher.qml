@@ -12,6 +12,18 @@ TestCase {
         compare(DockMatcher.stripDesktop(""), "")
     }
 
+    function test_toCanonical_keepsWebAppsApart() {
+        // Each Chromium web app keys on its own site, so a count in one app's
+        // title does not badge every other web app.
+        compare(DockMatcher.toCanonical("chrome-youtube.com__-Default"), "youtube")
+        compare(DockMatcher.toCanonical("chrome-maps.google.com__-Default"), "maps")
+        compare(DockMatcher.toCanonical("chrome-web.whatsapp.com__-Default"), "whatsapp")
+        compare(DockMatcher.toCanonical("chrome-www.example.org__-Profile_1"), "example")
+        // The browser itself still folds to "chrome".
+        compare(DockMatcher.toCanonical("google-chrome"), "chrome")
+        compare(DockMatcher.toCanonical("chromium"), "chrome")
+    }
+
     function test_desktopEntryIndex_fastLookup() {
         var mockEntries = [
             { id: "google-chrome.desktop", name: "Google Chrome", exec: "/usr/bin/google-chrome-stable", icon: "google-chrome" },
@@ -545,4 +557,176 @@ TestCase {
         compare(items[1].desktopId, "WhatsApp.desktop")
         compare(items[1].windowCount, 1)
     }
+
+    function test_diskIconLookup() {
+        DockMatcher.setDiskIcons({
+            "omanta": "/usr/share/icons/hicolor/scalable/apps/omanta.svg",
+            "omashow": "/usr/share/icons/hicolor/scalable/apps/omashow.svg",
+            "org.gnome.nautilus": "/usr/share/icons/hicolor/scalable/apps/org.gnome.Nautilus.svg"
+        })
+
+        // Exact match
+        compare(DockMatcher.getDiskIcon("omanta"), "file:///usr/share/icons/hicolor/scalable/apps/omanta.svg")
+        compare(DockMatcher.getDiskIcon("omashow"), "file:///usr/share/icons/hicolor/scalable/apps/omashow.svg")
+
+        // Case insensitivity
+        compare(DockMatcher.getDiskIcon("Omanta"), "file:///usr/share/icons/hicolor/scalable/apps/omanta.svg")
+        compare(DockMatcher.getDiskIcon("OMASHOW"), "file:///usr/share/icons/hicolor/scalable/apps/omashow.svg")
+
+        // Desktop suffix stripping
+        compare(DockMatcher.getDiskIcon("omanta.desktop"), "file:///usr/share/icons/hicolor/scalable/apps/omanta.svg")
+
+        // Reverse-DNS fallback
+        compare(DockMatcher.getDiskIcon("nautilus"), "file:///usr/share/icons/hicolor/scalable/apps/org.gnome.Nautilus.svg")
+
+        // resolveIcon integration
+        var resolved = DockMatcher.resolveIcon(null, "omanta", null)
+        compare(resolved, "file:///usr/share/icons/hicolor/scalable/apps/omanta.svg")
+
+        var resolvedShow = DockMatcher.resolveIcon({ icon: "omashow" }, "omashow", null)
+        compare(resolvedShow, "file:///usr/share/icons/hicolor/scalable/apps/omashow.svg")
+    }
+
+    function test_quickshellDesktopEntryExecString() {
+        // Quickshell's DesktopEntry objects expose `execString`, not `exec`.
+        // Issue #26: Verify that entries using execString resolve correctly in all paths.
+        var amazonEntry = {
+            id: "Amazon - Personal",
+            name: "Amazon - Personal",
+            icon: "amazon",
+            execString: "/home/user/chrome-app personal --app=\"https://www.amazon.ca/\""
+        }
+        var steamEntry = {
+            id: "steam_game_1700",
+            name: "Arx Fatalis",
+            icon: "steam_icon_1700",
+            execString: "steam steam://rungameid/1700"
+        }
+        var entries = [amazonEntry, steamEntry]
+
+        // 1. findEntry for Chrome Web App with subdomain (www.amazon.ca) via execString
+        var foundAmazon = DockMatcher.findEntry(entries, "chrome-www.amazon.ca__-Profile_3")
+        verify(foundAmazon !== null)
+        compare(foundAmazon.id, "Amazon - Personal")
+        compare(foundAmazon.icon, "amazon")
+
+        // 2. findEntry for Steam Game via execString
+        var foundSteam = DockMatcher.findEntry(entries, "steam_app_1700")
+        verify(foundSteam !== null)
+        compare(foundSteam.id, "steam_game_1700")
+
+        // 3. createDesktopEntryIndex byExec indexing via execString
+        var index = DockMatcher.createDesktopEntryIndex(entries)
+        verify(index.byExec["chrome-app"] !== undefined)
+        compare(index.byExec["chrome-app"].id, "Amazon - Personal")
+
+        // 4. buildDockItems: verify item.exec preserves execString
+        var top = {
+            appId: "chrome-www.amazon.ca__-Profile_3",
+            title: "Amazon.ca: Low Prices",
+            address: "0xdeadbeef"
+        }
+        var items = DockMatcher.buildDockItems([], [top], top, entries, null, {}, {}, 0, [])
+        compare(items.length, 1)
+        compare(items[0].desktopId, "Amazon - Personal")
+        compare(items[0].exec, "/home/user/chrome-app personal --app=\"https://www.amazon.ca/\"")
+    }
+
+    function test_browserNeverSwallowedByWebAppLauncher() {
+        var xEntry = {
+            id: "X.desktop",
+            name: "X",
+            exec: "omarchy-launch-webapp https://x.com/",
+            icon: "x"
+        }
+        var yandexEntry = {
+            id: "yandex-browser.desktop",
+            name: "Yandex Browser",
+            exec: "/usr/bin/yandex-browser-stable %U",
+            icon: "yandex-browser"
+        }
+        var chromeEntry = {
+            id: "google-chrome.desktop",
+            name: "Google Chrome",
+            exec: "/usr/bin/google-chrome-stable",
+            icon: "google-chrome"
+        }
+        var antigravityEntry = {
+            id: "antigravity.desktop",
+            name: "Antigravity",
+            exec: "antigravity",
+            icon: "antigravity"
+        }
+
+        var entries = [xEntry, yandexEntry, chromeEntry, antigravityEntry]
+
+        var yandexTop = {
+            appId: "yandex-browser",
+            title: "(3) Нашел замену ThinkPad это... - YouTube — Yandex Browser",
+            address: "0x653d29fbe5a0"
+        }
+        var chromeTop = {
+            appId: "google-chrome",
+            title: "Releases · xXJSONDeruloXx/decky-lsfg-vk - Google Chrome",
+            address: "0x653d29f01360"
+        }
+        var antigravityTop = {
+            appId: "antigravity",
+            title: "Dock - Dock - Antigravity",
+            address: "0x653d29f50030"
+        }
+
+        // 1. Direct matching: X webapp item must NEVER match yandex-browser or google-chrome windows
+        compare(DockMatcher.matchToplevel(yandexTop, "chrome-x.com__-Default", xEntry, entries), false)
+        compare(DockMatcher.matchToplevel(chromeTop, "chrome-x.com__-Default", xEntry, entries), false)
+
+        // 2. Browser items match their own windows
+        compare(DockMatcher.matchToplevel(yandexTop, "yandex-browser", yandexEntry, entries), true)
+        compare(DockMatcher.matchToplevel(chromeTop, "google-chrome", chromeEntry, entries), true)
+
+        // 3. Full buildDockItems test with pinned items matching user environment
+        var pinned = [
+            "foot",
+            "io.github.lgse.Strata",
+            "google-chrome",
+            "antigravity",
+            "chrome-x.com__-Default",
+            "chrome-discord.com__channels_@me-Default",
+            "org.kde.krita",
+            "steam"
+        ]
+
+        var toplevels = [chromeTop, antigravityTop, yandexTop]
+        var items = DockMatcher.buildDockItems(pinned, toplevels, antigravityTop, entries, null, {}, {}, 0, [])
+
+        // 8 pinned + 1 unpinned (yandex-browser) = 9 items
+        compare(items.length, 9)
+
+        // Pinned chrome-x.com__-Default must NOT be running
+        var xItem = items[4]
+        compare(xItem.id, "chrome-x.com__-Default")
+        compare(xItem.isRunning, false)
+        compare(xItem.windowCount, 0)
+
+        // Pinned google-chrome must be running
+        var chromeItem = items[2]
+        compare(chromeItem.id, "google-chrome")
+        compare(chromeItem.isRunning, true)
+        compare(chromeItem.windowCount, 1)
+
+        // Pinned antigravity must be running
+        var antiItem = items[3]
+        compare(antiItem.id, "antigravity")
+        compare(antiItem.isRunning, true)
+        compare(antiItem.windowCount, 1)
+
+        // Unpinned item for yandex-browser must exist and be running
+        var yandexItem = items[8]
+        compare(yandexItem.id, "yandex-browser")
+        compare(yandexItem.isPinned, false)
+        compare(yandexItem.isRunning, true)
+        compare(yandexItem.windowCount, 1)
+    }
 }
+
+
