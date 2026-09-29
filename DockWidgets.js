@@ -37,7 +37,7 @@ function switchDockWidgetInBar(shell, newWidgetId, prevWidgetIds, savedPositions
         ],
         "center": [
             "omarchy.indicators",
-            "rosakodu.dock",
+            "wizenith.dock",
             "omarchy.system-update",
             "omarchy.clock",
             "omarchy.weather"
@@ -331,7 +331,7 @@ function returnWidgetToBar(shell, widgetId, savedPositions, defaultRegion, shell
         ],
         "center": [
             "omarchy.indicators",
-            "rosakodu.dock",
+            "wizenith.dock",
             "omarchy.system-update",
             "omarchy.clock",
             "omarchy.weather"

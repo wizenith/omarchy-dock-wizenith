@@ -11,7 +11,7 @@ import "components"
 
 BarWidget {
   id: root
-  moduleName: "rosakodu.dock"
+  moduleName: "wizenith.dock"
 
   property string settingsPath: Quickshell.env("HOME") + "/.config/omarchy/dock-settings.json"
   property bool dockEnabled: true
@@ -163,7 +163,7 @@ BarWidget {
     root.dockEnabled = val
     saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
-      root.bar.run("omarchy-shell rosakodu.dock setDockEnabled " + (val ? "true" : "false"))
+      root.bar.run("omarchy-shell wizenith.dock setDockEnabled " + (val ? "true" : "false"))
     }
   }
 
@@ -179,7 +179,7 @@ BarWidget {
     }
     saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
-      root.bar.run("omarchy-shell rosakodu.dock setVisibilityMode " + root.visibilityMode)
+      root.bar.run("omarchy-shell wizenith.dock setVisibilityMode " + root.visibilityMode)
     }
   }
 
@@ -195,7 +195,7 @@ BarWidget {
     }
     saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
-      root.bar.run("omarchy-shell rosakodu.dock setVisibilityMode " + root.visibilityMode)
+      root.bar.run("omarchy-shell wizenith.dock setVisibilityMode " + root.visibilityMode)
     }
   }
 
@@ -203,7 +203,7 @@ BarWidget {
     root.overlayMode = val
     saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
-      root.bar.run("omarchy-shell rosakodu.dock setOverlayMode " + (val ? "true" : "false"))
+      root.bar.run("omarchy-shell wizenith.dock setOverlayMode " + (val ? "true" : "false"))
     }
   }
 
@@ -215,7 +215,7 @@ BarWidget {
     root.visibilityMode = norm
     saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
-      root.bar.run("omarchy-shell rosakodu.dock setVisibilityMode " + root.visibilityMode)
+      root.bar.run("omarchy-shell wizenith.dock setVisibilityMode " + root.visibilityMode)
     }
   }
 
@@ -223,7 +223,7 @@ BarWidget {
     root.visibleWorkspace = DockSettings.normalizeVisibleWorkspace(workspace)
     saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
-      root.bar.run("omarchy-shell rosakodu.dock setVisibleWorkspace " + root.visibleWorkspace)
+      root.bar.run("omarchy-shell wizenith.dock setVisibleWorkspace " + root.visibleWorkspace)
     }
   }
 
@@ -269,7 +269,7 @@ BarWidget {
     root.showFolderTitles = val
     saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
-      root.bar.run("omarchy-shell rosakodu.dock setShowFolderTitles " + (val ? "true" : "false"))
+      root.bar.run("omarchy-shell wizenith.dock setShowFolderTitles " + (val ? "true" : "false"))
     }
   }
 
@@ -277,7 +277,7 @@ BarWidget {
     root.showBadges = val
     saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
-      root.bar.run("omarchy-shell rosakodu.dock setShowBadges " + (val ? "true" : "false"))
+      root.bar.run("omarchy-shell wizenith.dock setShowBadges " + (val ? "true" : "false"))
     }
   }
 
@@ -285,7 +285,7 @@ BarWidget {
     root.cliAppIcons = val
     saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
-      root.bar.run("omarchy-shell rosakodu.dock setCliAppIcons " + (val ? "true" : "false"))
+      root.bar.run("omarchy-shell wizenith.dock setCliAppIcons " + (val ? "true" : "false"))
     }
   }
 
@@ -293,7 +293,7 @@ BarWidget {
     root.showSingleWindowPicker = !!val
     saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
-      root.bar.run("omarchy-shell rosakodu.dock setShowSingleWindowPicker " + (val ? "true" : "false"))
+      root.bar.run("omarchy-shell wizenith.dock setShowSingleWindowPicker " + (val ? "true" : "false"))
     }
   }
 
@@ -301,7 +301,7 @@ BarWidget {
     root.windowPickerLayout = DockSettings.normalizeWindowPickerLayout(value)
     saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
-      root.bar.run("omarchy-shell rosakodu.dock setWindowPickerLayout " + root.windowPickerLayout)
+      root.bar.run("omarchy-shell wizenith.dock setWindowPickerLayout " + root.windowPickerLayout)
     }
   }
 
@@ -314,7 +314,7 @@ BarWidget {
 
     root.saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
-      root.bar.run("omarchy-shell rosakodu.dock setWindowPickerTiming "
+      root.bar.run("omarchy-shell wizenith.dock setWindowPickerTiming "
         + root.windowPickerOpenDelayMs + " " + root.windowPickerPreviewDelayMs + " "
         + root.windowPickerCloseDelayMs + " " + root.windowPickerFadeDurationMs)
     }
@@ -324,7 +324,7 @@ BarWidget {
     root.widgetsEnabled = val
     saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
-      root.bar.run("omarchy-shell rosakodu.dock setWidgetsEnabled " + (val ? "true" : "false"))
+      root.bar.run("omarchy-shell wizenith.dock setWidgetsEnabled " + (val ? "true" : "false"))
     }
   }
 
@@ -711,7 +711,7 @@ BarWidget {
                 id: cmdText
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignVCenter
-                text: cmdPill.copied ? "✓ Copied to clipboard!" : "o.bind(\"SUPER + D\", \"Toggle Dock\",\n  \"omarchy-shell -q rosakodu.dock toggleReveal\")"
+                text: cmdPill.copied ? "✓ Copied to clipboard!" : "o.bind(\"SUPER + D\", \"Toggle Dock\",\n  \"omarchy-shell -q wizenith.dock toggleReveal\")"
                 textFormat: Text.PlainText
                 font.family: !cmdPill.copied ? (Style.font.monospace || "monospace") : Style.font.family
                 font.pixelSize: !cmdPill.copied ? 9 : 10
@@ -739,7 +739,7 @@ BarWidget {
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
               onClicked: {
-                var cmd = 'o.bind("SUPER + D", "Toggle Dock", "omarchy-shell -q rosakodu.dock toggleReveal")'
+                var cmd = 'o.bind("SUPER + D", "Toggle Dock", "omarchy-shell -q wizenith.dock toggleReveal")'
                 try {
                   Quickshell.clipboardText = cmd
                 } catch(e) {}
@@ -1223,13 +1223,13 @@ BarWidget {
             onClicked: {
               root.close()
               var sh = root.shell || (root.bar ? root.bar.shell : null)
-              var dockSvc = (sh && typeof sh.serviceFor === "function") ? sh.serviceFor("rosakodu.dock") : null
+              var dockSvc = (sh && typeof sh.serviceFor === "function") ? sh.serviceFor("wizenith.dock") : null
               if (dockSvc && typeof dockSvc.openWidgetPicker === "function") {
                 dockSvc.openWidgetPicker()
               } else if (root.bar && typeof root.bar.run === "function") {
-                root.bar.run("omarchy-shell rosakodu.dock openWidgetPicker")
+                root.bar.run("omarchy-shell wizenith.dock openWidgetPicker")
               } else {
-                Util.execDetached("omarchy-shell rosakodu.dock openWidgetPicker")
+                Util.execDetached("omarchy-shell wizenith.dock openWidgetPicker")
               }
             }
           }

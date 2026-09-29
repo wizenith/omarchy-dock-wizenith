@@ -10,7 +10,7 @@ TestCase {
             bar: {
                 layout: {
                     left: ["omarchy.menu"],
-                    center: ["rosakodu.dock"],
+                    center: ["wizenith.dock"],
                     right: ["silvaio.gamemode", "omarchy.audio"]
                 }
             },

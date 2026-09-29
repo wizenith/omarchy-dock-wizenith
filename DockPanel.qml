@@ -116,9 +116,9 @@ Item {
         return itemIdx;
     }
 
-    // Direct IPC handler for rosakodu.dock target
+    // Direct IPC handler for wizenith.dock target
     IpcHandler {
-        target: "rosakodu.dock"
+        target: "wizenith.dock"
         function windowPickerState(): string { return root.windowPicker.debugState() }
         function open(): string { root.open(""); return "ok" }
         function close(): string { root.close(); return "ok" }
@@ -313,7 +313,7 @@ Item {
     function updatePluginEnabled() {
         var reg = root.pluginRegistry || (shell ? shell.pluginRegistry : null)
         if (reg && typeof reg.isEnabled === "function") {
-            root.pluginEnabled = reg.isEnabled("rosakodu.dock")
+            root.pluginEnabled = reg.isEnabled("wizenith.dock")
             return
         }
         try {
@@ -321,13 +321,13 @@ Item {
             if (raw && raw.length > 0) {
                 var cfg = JSON.parse(raw)
                 if (cfg) {
-                    if (Array.isArray(cfg.disabledPlugins) && cfg.disabledPlugins.indexOf("rosakodu.dock") !== -1) {
+                    if (Array.isArray(cfg.disabledPlugins) && cfg.disabledPlugins.indexOf("wizenith.dock") !== -1) {
                         root.pluginEnabled = false
                         return
                     }
                     if (Array.isArray(cfg.plugins)) {
                         for (var p = 0; p < cfg.plugins.length; p++) {
-                            if (cfg.plugins[p] && (cfg.plugins[p].id === "rosakodu.dock" || cfg.plugins[p] === "rosakodu.dock")) {
+                            if (cfg.plugins[p] && (cfg.plugins[p].id === "wizenith.dock" || cfg.plugins[p] === "wizenith.dock")) {
                                 root.pluginEnabled = true
                                 return
                             }
@@ -338,7 +338,7 @@ Item {
                             var arr = cfg.bar.layout[s] || []
                             for (var k = 0; k < arr.length; k++) {
                                 var entry = arr[k]
-                                if (entry && (entry.id === "rosakodu.dock" || entry === "rosakodu.dock")) {
+                                if (entry && (entry.id === "wizenith.dock" || entry === "wizenith.dock")) {
                                     root.pluginEnabled = true
                                     return
                                 }

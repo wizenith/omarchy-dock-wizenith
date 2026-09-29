@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "rosakodu.dock",
-  "name": "Dock",
+  "id": "wizenith.dock",
+  "name": "Dock (wizenith build)",
   "version": "1.8.27",
-  "author": "rosakodu",
+  "author": "wizenith",
   "license": "MIT",
-  "description": "Native animated application dock for Omarchy Quattro with dynamic positioning, Hyprland window tracking, Drag & Drop, and seamless Omarchy theme integration.",
+  "description": "Native animated application dock for Omarchy Quattro. A customized build of rosakodu/omarchy-dock (MIT) with hover labels, icon/name overrides, CLI and terminal matching fixes, and window picker timing controls. See README for provenance and credits.",
   "kinds": [
     "service",
     "bar-widget"
