@@ -16,8 +16,10 @@ work upstream does not have:
 ## Remotes
 
 ```
-origin    git@github.com:wizenith/omarchy-dock.git       your fork
-upstream  https://github.com/rosakodu/omarchy-dock.git   the author's repo
+origin    https://github.com/wizenith/omarchy-dock-wizenith.git   your fork
+          (fetch over HTTPS — anonymous, works on any machine;
+           push over git@github.com:wizenith/omarchy-dock-wizenith.git)
+upstream  https://github.com/rosakodu/omarchy-dock.git            the author's repo
 ```
 
 `omarchy plugin update wizenith.dock` fast-forwards this checkout to **origin** (your

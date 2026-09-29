@@ -54,7 +54,7 @@ drop, all in one dock per monitor.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/wizenith/omarchy-dock.git --enable
+omarchy plugin add https://github.com/wizenith/omarchy-dock-wizenith.git --enable
 ```
 
 ## Update
