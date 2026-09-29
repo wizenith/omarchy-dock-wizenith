@@ -8,7 +8,7 @@ import "../DockModel.js" as DockModel
 Item {
     id: root
     required property var dock
-    readonly property string revision: "hover-picker-5"
+    readonly property string revision: "hover-picker-6"
     readonly property double loadedAt: Date.now()
     property bool opened: false
     property bool popupHovered: false
@@ -207,6 +207,8 @@ Item {
             originWorkspace: root.originWorkspace, selectedCount: root.selectedWindows.length, selecting: root.selecting, hovered: root.popupHovered, appId: root.appId, rows: rows, icons: icons,
             tooltip: { requested: !!root.dock.tooltipRequested, open: !!root.dock.tooltipOpen,
                 appId: String(root.dock.tooltipAppId || ""), title: String(root.dock.tooltipTitle || "") },
+            timing: { openDelayMs: root.dock.windowPickerOpenDelayMs, previewDelayMs: root.dock.windowPickerPreviewDelayMs,
+                closeDelayMs: root.dock.windowPickerCloseDelayMs, fadeDurationMs: root.dock.windowPickerFadeDurationMs },
             error: root.lastError, lastResult: root.lastResult, busy: focusProcess.running,
             coordinateSpace: "dock-local", screen: win && win.screen ? win.screen.name : "",
             popup: { visible: popup.visible, x: popup.anchor.rect.x, y: popup.anchor.rect.y, width: popup.width, height: popup.height,
@@ -215,7 +217,7 @@ Item {
 
     Timer {
         id: openTimer
-        interval: 220
+        interval: root.dock.windowPickerOpenDelayMs
         onTriggered: {
             var pending = root.pendingOpen
             if (!pending || root.iconHoveredId !== pending.appId) return
@@ -241,7 +243,7 @@ Item {
 
     Timer {
         id: closeTimer
-        interval: 600
+        interval: root.dock.windowPickerCloseDelayMs
         onTriggered: {
             if (!root.popupHovered && root.iconHoveredId !== root.appId) root.close()
         }
@@ -249,7 +251,7 @@ Item {
 
     Timer {
         id: previewTimer
-        interval: 140
+        interval: root.dock.windowPickerPreviewDelayMs
         onTriggered: {
             var top = root.pendingTop
             if (!root.opened || root.selecting || root.busy || !root.popupHovered || !top || root.windows.indexOf(top) < 0 || top.activated) return
@@ -300,6 +302,7 @@ Item {
         iconSource: root.iconSource
         barPosition: root.dock.barPosition
         layoutMode: root.dock.windowPickerLayout
+        fadeDurationMs: root.dock.windowPickerFadeDurationMs
         open: root.opened
         errorText: root.lastError
         selectedWindows: root.selectedWindows

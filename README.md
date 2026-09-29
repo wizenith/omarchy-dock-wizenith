@@ -72,6 +72,10 @@ You can customize options directly via the `···` status bar widget or in `~/.
   "visibleWorkspace": "all",
   "showFolderTitles": true,
   "showBadges": true,
+  "windowPickerOpenDelayMs": 150,
+  "windowPickerPreviewDelayMs": 140,
+  "windowPickerCloseDelayMs": 250,
+  "windowPickerFadeDurationMs": 150,
   "widgetsEnabled": true,
   "widgetPosition": "left",
   "dockWidgets": [
@@ -171,16 +175,25 @@ omarchy plugin remove rosakodu.dock
 
 ## Local Window Picker
 
-By default, the picker opens after 220 ms only over an app with multiple windows. Dock Settings can enable the same menu for a single window. Moving onto a row previews that exact window after 140 ms, with the cursor kept over the list. Click a row to confirm; click × or right-click the list to dismiss. Leaving both the app icon and picker dismisses it after 600 ms. The transparent bridge between the icon and card keeps hover continuous. Longer lists scroll with the mouse wheel.
+Dock Settings has timing controls for the picker; changing them takes effect immediately without restarting the shell. The same values can be set in `dock-settings.json`, in milliseconds:
+
+| Setting | Default | Range | Effect |
+| --- | ---: | ---: | --- |
+| `windowPickerOpenDelayMs` | 150 ms | 0–1000 ms | Wait over an app before opening the menu |
+| `windowPickerPreviewDelayMs` | 140 ms | 0–800 ms | Wait over a row before previewing that window |
+| `windowPickerCloseDelayMs` | 250 ms | 0–2000 ms | Wait after leaving both the icon and menu before closing |
+| `windowPickerFadeDurationMs` | 150 ms | 0–600 ms | Fade the menu in and out |
+
+The Dock Settings controls display seconds and adjust in small steps. Apps with multiple windows show the picker by default; Dock Settings can enable it for a single window too. Click a row to confirm; click × or right-click the list to dismiss. The transparent bridge between the icon and card keeps hover continuous. Longer lists scroll with the mouse wheel.
 
 Previewing a minimized window restores it to the current workspace. Leaving the picker keeps the last previewed window focused. Window identity and ordering remain stable when focus or titles update; a closed target never launches a replacement app or selects a different window by index.
 
-After changing QML, reload reliably with `omarchy restart shell`. `omarchy-shell shell rescanPlugins` rescans plugins but may retain cached QML components. Confirm the loaded implementation and inspect the picker with `omarchy-shell rosakodu.dock windowPickerState`; this version reports `hover-picker-5`.
+After changing QML, reload reliably with `omarchy restart shell`. `omarchy-shell shell rescanPlugins` rescans plugins but may retain cached QML components. Confirm the loaded implementation and inspect the picker with `omarchy-shell rosakodu.dock windowPickerState`; this version reports `hover-picker-6`.
 
 The preview helper uses one Hyprland Lua evaluation to temporarily suppress cursor warps, focus the target, and restore the previous options even on a dispatch error. Preview requests are serialized, and click confirmation takes precedence over queued hovers. If preview protection is unavailable, the list stays usable for click selection.
 
 
-### Local window picker actions and layouts (hover-picker-5)
+### Local window picker actions and layouts (hover-picker-6)
 
 The hover picker supports one or more windows when enabled for single-window apps
 in Dock Settings. Its default remains two or more windows. All windows are selected when

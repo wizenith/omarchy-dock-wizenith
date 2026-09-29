@@ -15,6 +15,8 @@ PopupWindow {
     property string iconSource: ""
     property string barPosition: "bottom"
     property bool open: false
+    property bool rendered: false
+    property int fadeDurationMs: 150
     property string errorText: ""
     property var selectedWindows: []
     property bool selecting: false
@@ -42,9 +44,31 @@ PopupWindow {
 
     implicitWidth: Math.min(440, (root.anchorWindow && root.anchorWindow.screen ? root.anchorWindow.screen.width : 1920) - 24)
     implicitHeight: card.implicitHeight + ((root.barPosition === "top" || root.barPosition === "bottom") ? root.bridge : 0)
-    visible: root.open && root.windows.length > 0 && !!root.anchorWindow
+    visible: root.rendered && root.windows.length > 0 && !!root.anchorWindow
     color: "transparent"
     grabFocus: false
+    mask: Region {
+        width: root.open ? root.width : 0
+        height: root.open ? root.height : 0
+    }
+
+    onOpenChanged: {
+        if (root.open) {
+            hideTimer.stop()
+            root.rendered = true
+        } else {
+            hideTimer.restart()
+        }
+    }
+
+    Component.onCompleted: root.rendered = root.open
+
+    Timer {
+        id: hideTimer
+        interval: Math.max(1, root.fadeDurationMs)
+        repeat: false
+        onTriggered: if (!root.open) root.rendered = false
+    }
 
     function windowTitle(top, index) {
         return top && top.title ? String(top.title).trim() : ("Window " + (index + 1))
@@ -106,6 +130,10 @@ PopupWindow {
         BorderSurface {
             id: card
             anchors.fill: parent
+            opacity: root.open ? 1.0 : 0.0
+            Behavior on opacity {
+                NumberAnimation { duration: root.fadeDurationMs; easing.type: Easing.OutCubic }
+            }
             anchors.bottomMargin: root.barPosition === "top" ? root.bridge : 0
             anchors.topMargin: root.barPosition === "bottom" ? root.bridge : 0
             anchors.rightMargin: root.barPosition === "left" ? root.bridge : 0

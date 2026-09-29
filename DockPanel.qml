@@ -139,6 +139,14 @@ Item {
         function setCliAppIcons(val: string): string { root.cliAppIcons = (val === "true" || val === "1"); DockModel.setCliAppIcons(root.cliAppIcons); root.saveSettings(); root.updateDockItems(); return "ok" }
         function setShowSingleWindowPicker(val: string): string { root.showSingleWindowPicker = (val === "true" || val === "1"); root.saveSettings(); return "ok" }
         function setWindowPickerLayout(val: string): string { root.windowPickerLayout = DockSettings.normalizeWindowPickerLayout(val); root.saveSettings(); return "ok" }
+        function setWindowPickerTiming(openDelay: string, previewDelay: string, closeDelay: string, fadeDuration: string): string {
+            root.windowPickerOpenDelayMs = DockSettings.normalizeMilliseconds(openDelay, root.windowPickerOpenDelayMs, 1000)
+            root.windowPickerPreviewDelayMs = DockSettings.normalizeMilliseconds(previewDelay, root.windowPickerPreviewDelayMs, 800)
+            root.windowPickerCloseDelayMs = DockSettings.normalizeMilliseconds(closeDelay, root.windowPickerCloseDelayMs, 2000)
+            root.windowPickerFadeDurationMs = DockSettings.normalizeMilliseconds(fadeDuration, root.windowPickerFadeDurationMs, 600)
+            root.saveSettings()
+            return "ok"
+        }
         function setOverlayMode(val: string): string { root.overlayMode = (val === "true" || val === "1"); root.saveSettings(); return "ok" }
         function ping(): string { return "ok" }
     }
@@ -411,6 +419,10 @@ Item {
         return ""
     }
     property string windowPickerLayout: "classic"
+    property int windowPickerOpenDelayMs: 150
+    property int windowPickerPreviewDelayMs: 140
+    property int windowPickerCloseDelayMs: 250
+    property int windowPickerFadeDurationMs: 150
     property bool glassmorphism: false
     property real blurOpacity: 0.68
     readonly property bool showAppMenu: root.widgetsEnabled && root.dockWidgets && (root.dockWidgets.indexOf("omarchy.apps") !== -1)
@@ -1150,6 +1162,10 @@ Item {
                 root.visibleWorkspace = normalized.visibleWorkspace
                 root.showSingleWindowPicker = normalized.showSingleWindowPicker
                 root.windowPickerLayout = normalized.windowPickerLayout
+                root.windowPickerOpenDelayMs = normalized.windowPickerOpenDelayMs
+                root.windowPickerPreviewDelayMs = normalized.windowPickerPreviewDelayMs
+                root.windowPickerCloseDelayMs = normalized.windowPickerCloseDelayMs
+                root.windowPickerFadeDurationMs = normalized.windowPickerFadeDurationMs
                 if (s.dockEnabled !== undefined) {
                     root.dockEnabled = (s.dockEnabled === true || s.dockEnabled === "true" || s.dockEnabled === 1 || s.dockEnabled === "1")
                 } else {
@@ -1231,6 +1247,10 @@ Item {
             cliAppIcons: root.cliAppIcons,
             showSingleWindowPicker: root.showSingleWindowPicker,
             windowPickerLayout: root.windowPickerLayout,
+            windowPickerOpenDelayMs: root.windowPickerOpenDelayMs,
+            windowPickerPreviewDelayMs: root.windowPickerPreviewDelayMs,
+            windowPickerCloseDelayMs: root.windowPickerCloseDelayMs,
+            windowPickerFadeDurationMs: root.windowPickerFadeDurationMs,
             glassmorphism: root.glassmorphism,
             blurOpacity: root.blurOpacity,
             widgetsEnabled: root.widgetsEnabled,

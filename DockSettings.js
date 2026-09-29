@@ -45,6 +45,13 @@ function normalizeWindowPickerLayout(value) {
     return layout === "compact" || layout === "list" ? layout : "classic"
 }
 
+function normalizeMilliseconds(value, fallback, maximum) {
+    if (value === undefined || value === null || String(value).trim() === "") return fallback
+    var milliseconds = Number(value)
+    if (!isFinite(milliseconds)) return fallback
+    return Math.max(0, Math.min(maximum, Math.round(milliseconds)))
+}
+
 function normalize(raw) {
     var settings = raw && typeof raw === "object" ? raw : {}
     return {
@@ -52,7 +59,11 @@ function normalize(raw) {
         overlayMode: normalizeOverlayMode(settings.overlayMode, settings.spaceMode),
         visibleWorkspace: normalizeVisibleWorkspace(settings.visibleWorkspace),
         showSingleWindowPicker: settings.showSingleWindowPicker === true,
-        windowPickerLayout: normalizeWindowPickerLayout(settings.windowPickerLayout)
+        windowPickerLayout: normalizeWindowPickerLayout(settings.windowPickerLayout),
+        windowPickerOpenDelayMs: normalizeMilliseconds(settings.windowPickerOpenDelayMs, 150, 1000),
+        windowPickerPreviewDelayMs: normalizeMilliseconds(settings.windowPickerPreviewDelayMs, 140, 800),
+        windowPickerCloseDelayMs: normalizeMilliseconds(settings.windowPickerCloseDelayMs, 250, 2000),
+        windowPickerFadeDurationMs: normalizeMilliseconds(settings.windowPickerFadeDurationMs, 150, 600)
     }
 }
 

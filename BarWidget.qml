@@ -24,6 +24,10 @@ BarWidget {
   property bool cliAppIcons: true
   property bool showSingleWindowPicker: false
   property string windowPickerLayout: "classic"
+  property int windowPickerOpenDelayMs: 150
+  property int windowPickerPreviewDelayMs: 140
+  property int windowPickerCloseDelayMs: 250
+  property int windowPickerFadeDurationMs: 150
   property bool widgetsEnabled: true
   readonly property bool settingsOpen: settingsWindow.open
   property bool isSavingSettings: false
@@ -77,6 +81,10 @@ BarWidget {
         root.visibleWorkspace = normalized.visibleWorkspace
         root.showSingleWindowPicker = normalized.showSingleWindowPicker
         root.windowPickerLayout = normalized.windowPickerLayout
+        root.windowPickerOpenDelayMs = normalized.windowPickerOpenDelayMs
+        root.windowPickerPreviewDelayMs = normalized.windowPickerPreviewDelayMs
+        root.windowPickerCloseDelayMs = normalized.windowPickerCloseDelayMs
+        root.windowPickerFadeDurationMs = normalized.windowPickerFadeDurationMs
         if (s && s.dockEnabled !== undefined) {
           root.dockEnabled = (s.dockEnabled === true || s.dockEnabled === "true" || s.dockEnabled === 1 || s.dockEnabled === "1")
         } else {
@@ -130,6 +138,10 @@ BarWidget {
     s.cliAppIcons = root.cliAppIcons
     s.showSingleWindowPicker = root.showSingleWindowPicker
     s.windowPickerLayout = root.windowPickerLayout
+    s.windowPickerOpenDelayMs = root.windowPickerOpenDelayMs
+    s.windowPickerPreviewDelayMs = root.windowPickerPreviewDelayMs
+    s.windowPickerCloseDelayMs = root.windowPickerCloseDelayMs
+    s.windowPickerFadeDurationMs = root.windowPickerFadeDurationMs
     s.widgetsEnabled = root.widgetsEnabled
     s.appMenuPosition = root.appMenuPosition || s.appMenuPosition || "left"
     s.widgetPosition = root.widgetPosition || s.widgetPosition || "right"
@@ -290,6 +302,21 @@ BarWidget {
     saveSettings()
     if (root.bar && typeof root.bar.run === "function") {
       root.bar.run("omarchy-shell rosakodu.dock setWindowPickerLayout " + root.windowPickerLayout)
+    }
+  }
+
+  function setWindowPickerTiming(kind, value) {
+    if (kind === "open") root.windowPickerOpenDelayMs = DockSettings.normalizeMilliseconds(value, 150, 1000)
+    else if (kind === "preview") root.windowPickerPreviewDelayMs = DockSettings.normalizeMilliseconds(value, 140, 800)
+    else if (kind === "close") root.windowPickerCloseDelayMs = DockSettings.normalizeMilliseconds(value, 250, 2000)
+    else if (kind === "fade") root.windowPickerFadeDurationMs = DockSettings.normalizeMilliseconds(value, 150, 600)
+    else return
+
+    root.saveSettings()
+    if (root.bar && typeof root.bar.run === "function") {
+      root.bar.run("omarchy-shell rosakodu.dock setWindowPickerTiming "
+        + root.windowPickerOpenDelayMs + " " + root.windowPickerPreviewDelayMs + " "
+        + root.windowPickerCloseDelayMs + " " + root.windowPickerFadeDurationMs)
     }
   }
 
@@ -1040,6 +1067,46 @@ BarWidget {
             { value: "list", label: "Single-line list · most dense" }
           ]
           onChanged: function(value) { root.setWindowPickerLayout(value) }
+        }
+
+        DockTimingControl {
+          Layout.fillWidth: true
+          label: "Picker open delay"
+          description: "Wait before showing the multi-window menu"
+          value: root.windowPickerOpenDelayMs
+          maximum: 1000
+          step: 50
+          onValueEdited: function(value) { root.setWindowPickerTiming("open", value) }
+        }
+
+        DockTimingControl {
+          Layout.fillWidth: true
+          label: "Window preview delay"
+          description: "Wait before switching to a hovered window"
+          value: root.windowPickerPreviewDelayMs
+          maximum: 800
+          step: 25
+          onValueEdited: function(value) { root.setWindowPickerTiming("preview", value) }
+        }
+
+        DockTimingControl {
+          Layout.fillWidth: true
+          label: "Picker close delay"
+          description: "Wait after leaving the icon and menu"
+          value: root.windowPickerCloseDelayMs
+          maximum: 2000
+          step: 50
+          onValueEdited: function(value) { root.setWindowPickerTiming("close", value) }
+        }
+
+        DockTimingControl {
+          Layout.fillWidth: true
+          label: "Picker fade duration"
+          description: "Fade the menu in and out"
+          value: root.windowPickerFadeDurationMs
+          maximum: 600
+          step: 25
+          onValueEdited: function(value) { root.setWindowPickerTiming("fade", value) }
         }
 
         // Toggle Widgets in Dock Row
